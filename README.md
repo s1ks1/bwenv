@@ -99,7 +99,7 @@ bwenv remove
 
 ## 🖼️ Screenshots
 
-| Folder Selection                     | Debug Output                |
+| Interactive Selection Screenshot     | Init Screenshot             |
 | ------------------------------------ | --------------------------- |
 | ![folders](./assets/interactive.png) | ![debug](./assets/init.png) |
 
