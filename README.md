@@ -118,5 +118,5 @@ Pull requests welcome! For major changes, open an issue first to discuss what yo
 ---
 
 <div align="center">
-  <b>Made with ❤️ for secure development</b>
+  <b>Made with ❤️ for easy development</b>
 </div>
