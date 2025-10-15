@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Global Bitwarden + direnv CLI
+# Usage: bwenv init | bwenv interactive | bwenv remove
+
+LIB_DIR="$HOME/.config/direnv/lib"
+HELPER_SCRIPT="$LIB_DIR/bitwarden_folders.sh"
+
+# Provjeri da li helper postoji
+if [ ! -f "$HELPER_SCRIPT" ]; then
+  echo "⚠️ Helper script not found in $HELPER_SCRIPT"
+  echo "Run 'make install' first."
+  exit 1
+fi
+
+# Source helper
+source "$HELPER_SCRIPT"
+
+# Funkcija za generiranje .envrc
+generate_envrc() {
+  local folder_name="$1"
+  echo "export BW_SESSION=$BW_SESSION # Optional" > .envrc
+  echo "export DEBUG_BW=true" >> .envrc
+  echo "use bitwarden_folders" >> .envrc
+  echo "load_bitwarden_folder_vars \"$folder_name\"" >> .envrc
+  echo "✅ .envrc created in $(pwd) using folder: $folder_name"
+  echo "Run 'direnv allow' to load variables"
+}
+
+case "$1" in
+  init)
+    if ! command -v bw >/dev/null 2>&1; then
+      echo "❌ Bitwarden CLI is not installed." >&2
+      exit 1
+    fi
+
+    # Sync Bitwarden
+    bw sync >/dev/null 2>&1
+
+    # Ručni unos foldera
+    read -p "📦 Enter Bitwarden folder name to load secrets from: " folder_name
+    if [ -z "$folder_name" ]; then
+      echo "⚠️ Folder name cannot be empty."
+      exit 1
+    fi
+
+    # Unlock session
+    if [ -z "$BW_SESSION" ]; then
+      export BW_SESSION=$(bw unlock --raw)
+      echo "🔑 BW_SESSION obtained"
+    fi
+
+    generate_envrc "$folder_name"
+    ;;
+
+  interactive)
+    if ! command -v bw >/dev/null 2>&1; then
+      echo "❌ Bitwarden CLI is not installed." >&2
+      exit 1
+    fi
+
+    # Sync Bitwarden
+    bw sync >/dev/null 2>&1
+
+    # Unlock session
+    if [ -z "$BW_SESSION" ]; then
+      export BW_SESSION=$(bw unlock --raw)
+      echo "🔑 BW_SESSION obtained"
+    fi
+
+    # Dohvati sve foldere i prikaži s brojevima
+    folders=$(bw list folders --session "$BW_SESSION" | jq -r '.[].name')
+    if [ -z "$folders" ]; then
+      echo "⚠️ No folders found in Bitwarden."
+      exit 1
+    fi
+
+    echo "📂 Available folders:"
+    i=1
+    declare -A map
+    for f in $folders; do
+      echo " $i) $f"
+      map[$i]="$f"
+      i=$((i+1))
+    done
+
+    # Odabir brojem
+    read -p "Select folder number: " choice
+    folder_name="${map[$choice]}"
+    if [ -z "$folder_name" ]; then
+      echo "⚠️ Invalid choice."
+      exit 1
+    fi
+
+    generate_envrc "$folder_name"
+    ;;
+
+  remove)
+    echo "🧹 Removing .envrc in $(pwd)..."
+    rm -f .envrc
+    echo "✅ .envrc removed"
+    ;;
+
+  *)
+    echo "Usage: bwenv init | bwenv interactive | bwenv remove"
+    exit 0
+    ;;
+esac
