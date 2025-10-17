@@ -31,10 +31,20 @@ make install
 This will:
 
 - Copy helper scripts to `~/.config/direnv/lib`
-- Install the `bwenv` CLI to `~/.local/bin`
+- Install the `bwenv` CLI to `~/.local/bin` (Unix/macOS) or `%USERPROFILE%\.local\bin` (Windows)
 - Make everything executable
 
 > **Note:** Requires [Bitwarden CLI](https://bitwarden.com/help/cli/) and [jq](https://stedolan.github.io/jq/) installed.
+
+### Windows Setup
+
+On Windows, make sure `%USERPROFILE%\.local\bin` is in your PATH environment variable:
+
+```cmd
+# Add to PATH (PowerShell as Administrator)
+$env:PATH += ";$env:USERPROFILE\.local\bin"
+[Environment]::SetEnvironmentVariable("PATH", $env:PATH, [EnvironmentVariableTarget]::User)
+```
 
 ---
 
