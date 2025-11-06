@@ -35,9 +35,17 @@ generate_envrc() {
     echo "load_bitwarden_folder_vars \"$folder_name\""
   } > .envrc
   
-  echo "✅ .envrc created in $(pwd) using folder: $folder_name"
-  echo "📝 Debug level set to: $debug_level (1=steps only, 2=full debug)"
-  echo "🔄 Run 'direnv allow' to load variables"
+  echo ""
+  echo "┌─────────────────────────────────────────────────┐"
+  echo "│              ✅ SUCCESS                        │"
+  echo "├─────────────────────────────────────────────────┤"
+  echo "│ 📁 .envrc created in: $(pwd)"
+  echo "│ 📦 Using folder: $folder_name"
+  echo "│ 📝 Debug level: $debug_level $([ "$debug_level" -eq 0 ] && echo "(silent)" || [ "$debug_level" -eq 1 ] && echo "(steps only)" || echo "(full debug)")"
+  echo "│"
+  echo "│ 🔄 Next step: Run 'direnv allow' to load variables"
+  echo "└─────────────────────────────────────────────────┘"
+  echo ""
 }
 
 # Parse debug level from arguments
