@@ -14,17 +14,49 @@ if not exist "%HELPER_SCRIPT%" (
     exit /b 1
 )
 
+REM Parse debug level from arguments
+set debug_level=1
+if "%1"=="--debug=0" set debug_level=0 && shift
+if "%1"=="--debug=1" set debug_level=1 && shift  
+if "%1"=="--debug=2" set debug_level=2 && shift
+if "%1"=="--debug" set debug_level=2 && shift
+if "%1"=="--quiet" set debug_level=0 && shift
+if "%1"=="-q" set debug_level=0 && shift
+
 REM Function to generate .envrc
 if "%1"=="generate_envrc" (
     set "folder_name=%2"
     (
-        echo export BW_SESSION=%BW_SESSION% # Optional
-        echo export DEBUG_BW=true
+        echo # Bitwarden environment variables
+        echo export BW_SESSION=%BW_SESSION% # Required for Bitwarden access
+        echo.
+        echo # Debug levels:
+        echo #   BWENV_DEBUG=0: No debug output
+        echo #   BWENV_DEBUG=1: Show steps only ^(default^)
+        echo #   BWENV_DEBUG=2: Show steps and secrets ^(full debug^)
+        echo export BWENV_DEBUG=%debug_level%
+        echo.
+        echo # Load Bitwarden integration
         echo use bitwarden_folders
         echo load_bitwarden_folder_vars "%folder_name%"
     ) > .envrc
-    echo ✅ .envrc created in %CD% using folder: %folder_name%
-    echo Run 'direnv allow' to load variables
+    echo.
+    echo ┌─────────────────────────────────────────────────┐
+    echo │              ✅ SUCCESS                        │
+    echo ├─────────────────────────────────────────────────┤
+    echo │ 📁 .envrc created in: %CD%
+    echo │ 📦 Using folder: %folder_name%
+    if %debug_level%==0 (
+        echo │ 📝 Debug level: %debug_level% ^(silent^)
+    ) else if %debug_level%==1 (
+        echo │ 📝 Debug level: %debug_level% ^(steps only^)
+    ) else (
+        echo │ 📝 Debug level: %debug_level% ^(full debug^)
+    )
+    echo │
+    echo │ 🔄 Next step: Run 'direnv allow' to load variables
+    echo └─────────────────────────────────────────────────┘
+    echo.
     exit /b 0
 )
 
@@ -85,6 +117,15 @@ if "%1"=="init" (
     echo ✅ .envrc removed
 
 ) else (
-    echo Usage: bwenv init ^| bwenv interactive ^| bwenv remove
+    echo Usage:
+    echo   bwenv [--debug[=LEVEL]^|--quiet] init          - Manual folder input
+    echo   bwenv [--debug[=LEVEL]^|--quiet] interactive   - Interactive folder selection  
+    echo   bwenv remove                                  - Remove .envrc
+    echo.
+    echo Debug options:
+    echo   --quiet, -q     No debug output ^(BWENV_DEBUG=0^)
+    echo   --debug         Full debug with secrets ^(BWENV_DEBUG=2^)
+    echo   --debug=1       Show steps only, hide secrets ^(default^)
+    echo   --debug=2       Show steps and secrets ^(full debug^)
     exit /b 0
 )

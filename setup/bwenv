@@ -18,13 +18,55 @@ source "$HELPER_SCRIPT"
 # Funkcija za generiranje .envrc
 generate_envrc() {
   local folder_name="$1"
-  echo "export BW_SESSION=$BW_SESSION # Optional" > .envrc
-  echo "export DEBUG_BW=true" >> .envrc
-  echo "use bitwarden_folders" >> .envrc
-  echo "load_bitwarden_folder_vars \"$folder_name\"" >> .envrc
-  echo "✅ .envrc created in $(pwd) using folder: $folder_name"
-  echo "Run 'direnv allow' to load variables"
+  local debug_level="${BWENV_DEBUG:-1}"  # Default to level 1 (steps only)
+  
+  {
+    echo "# Bitwarden environment variables"
+    echo "export BW_SESSION=$BW_SESSION # Required for Bitwarden access"
+    echo ""
+    echo "# Debug levels:"
+    echo "#   BWENV_DEBUG=0: No debug output" 
+    echo "#   BWENV_DEBUG=1: Show steps only (default)"
+    echo "#   BWENV_DEBUG=2: Show steps and secrets (full debug)"
+    echo "export BWENV_DEBUG=$debug_level"
+    echo ""
+    echo "# Load Bitwarden integration"
+    echo "use bitwarden_folders"
+    echo "load_bitwarden_folder_vars \"$folder_name\""
+  } > .envrc
+  
+  echo ""
+  echo "┌─────────────────────────────────────────────────┐"
+  echo "│              ✅ SUCCESS                        │"
+  echo "├─────────────────────────────────────────────────┤"
+  echo "│ 📁 .envrc created in: $(pwd)"
+  echo "│ 📦 Using folder: $folder_name"
+  echo "│ 📝 Debug level: $debug_level $([ "$debug_level" -eq 0 ] && echo "(silent)" || [ "$debug_level" -eq 1 ] && echo "(steps only)" || echo "(full debug)")"
+  echo "│"
+  echo "│ 🔄 Next step: Run 'direnv allow' to load variables"
+  echo "└─────────────────────────────────────────────────┘"
+  echo ""
 }
+
+# Parse debug level from arguments
+debug_level=1  # Default
+case "$1" in
+  --debug=*)
+    debug_level="${1#*=}"
+    shift
+    ;;
+  --debug)
+    debug_level=2
+    shift
+    ;;
+  --quiet|-q)
+    debug_level=0
+    shift
+    ;;
+esac
+
+# Set environment for this session
+export BWENV_DEBUG="$debug_level"
 
 case "$1" in
   init)
@@ -33,8 +75,10 @@ case "$1" in
       exit 1
     fi
 
-    # Sync Bitwarden
-    bw sync >/dev/null 2>&1
+    echo "🔄 Syncing Bitwarden vault..."
+    if ! bw sync >/dev/null 2>&1; then
+      echo "⚠️ Bitwarden sync failed (this is usually okay)"
+    fi
 
     # Ručni unos foldera
     read -p "📦 Enter Bitwarden folder name to load secrets from: " folder_name
@@ -45,8 +89,9 @@ case "$1" in
 
     # Unlock session
     if [ -z "$BW_SESSION" ]; then
+      echo "🔑 Unlocking Bitwarden vault..."
       export BW_SESSION=$(bw unlock --raw)
-      echo "🔑 BW_SESSION obtained"
+      echo "✅ BW_SESSION obtained"
     fi
 
     generate_envrc "$folder_name"
@@ -58,16 +103,20 @@ case "$1" in
       exit 1
     fi
 
-    # Sync Bitwarden
-    bw sync >/dev/null 2>&1
+    echo "🔄 Syncing Bitwarden vault..."
+    if ! bw sync >/dev/null 2>&1; then
+      echo "⚠️ Bitwarden sync failed (this is usually okay)"
+    fi
 
     # Unlock session
     if [ -z "$BW_SESSION" ]; then
+      echo "🔑 Unlocking Bitwarden vault..."
       export BW_SESSION=$(bw unlock --raw)
-      echo "🔑 BW_SESSION obtained"
+      echo "✅ BW_SESSION obtained"
     fi
 
     # Dohvati sve foldere i prikaži s brojevima
+    echo "📂 Fetching available folders..."
     folders=$(bw list folders --session "$BW_SESSION" | jq -r '.[].name')
     if [ -z "$folders" ]; then
       echo "⚠️ No folders found in Bitwarden."
@@ -100,8 +149,73 @@ case "$1" in
     echo "✅ .envrc removed"
     ;;
 
+  test)
+    # Test mode - verify installation and direnv functionality
+    echo "🧪 Testing bwenv installation..."
+    
+    # Check dependencies
+    echo "📋 Checking dependencies:"
+    if command -v bw >/dev/null 2>&1; then
+      echo "  ✅ Bitwarden CLI: $(bw --version 2>/dev/null || echo 'installed')"
+    else
+      echo "  ❌ Bitwarden CLI: not installed"
+    fi
+    
+    if command -v jq >/dev/null 2>&1; then
+      echo "  ✅ jq: $(jq --version 2>/dev/null || echo 'installed')"
+    else
+      echo "  ❌ jq: not installed"  
+    fi
+    
+    if command -v direnv >/dev/null 2>&1; then
+      echo "  ✅ direnv: $(direnv version 2>/dev/null || echo 'installed')"
+    else
+      echo "  ❌ direnv: not installed"
+    fi
+    
+    # Check direnv hook
+    echo "📋 Checking direnv hook configuration:"
+    if [ -f ~/.bashrc ] && grep -q "direnv hook" ~/.bashrc; then
+      echo "  ✅ direnv hook found in ~/.bashrc"
+    elif [ -f ~/.zshrc ] && grep -q "direnv hook" ~/.zshrc; then
+      echo "  ✅ direnv hook found in ~/.zshrc"  
+    else
+      echo "  ⚠️  direnv hook not found in shell config"
+      echo "     Run 'make install' again to set up the hook"
+    fi
+    
+    # Check helper script
+    if [ -f "$HELPER_SCRIPT" ]; then
+      echo "  ✅ Helper script: $HELPER_SCRIPT"
+    else
+      echo "  ❌ Helper script: not found at $HELPER_SCRIPT"
+    fi
+    
+    # Check BW_SESSION
+    if [ -n "$BW_SESSION" ]; then
+      echo "  ✅ BW_SESSION: set"
+      if bw list folders --session "$BW_SESSION" >/dev/null 2>&1; then
+        echo "  ✅ BW_SESSION: valid"
+      else
+        echo "  ❌ BW_SESSION: invalid or expired"
+      fi
+    else
+      echo "  ⚠️  BW_SESSION: not set"
+    fi
+    ;;
+
   *)
-    echo "Usage: bwenv init | bwenv interactive | bwenv remove"
+    echo "Usage:"
+    echo "  bwenv [--debug[=LEVEL]|--quiet] init          - Manual folder input"
+    echo "  bwenv [--debug[=LEVEL]|--quiet] interactive   - Interactive folder selection"
+    echo "  bwenv remove                                  - Remove .envrc"
+    echo "  bwenv test                                    - Test installation"
+    echo ""
+    echo "Debug options:"
+    echo "  --quiet, -q     No debug output (BWENV_DEBUG=0)"
+    echo "  --debug         Full debug with secrets (BWENV_DEBUG=2)"  
+    echo "  --debug=1       Show steps only, hide secrets (default)"
+    echo "  --debug=2       Show steps and secrets (full debug)"
     exit 0
     ;;
 esac
