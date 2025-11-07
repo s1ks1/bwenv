@@ -131,7 +131,7 @@ bwenv remove
 ## 🧩 How It Works
 
 - **Helper script**: Loads all custom fields from items in the selected Bitwarden folder as environment variables
-- **Smart debugging**: 
+- **Smart debugging**:
   - `BWENV_DEBUG=0`: Silent mode
   - `BWENV_DEBUG=1`: Shows processing steps, hides secret values (default)
   - `BWENV_DEBUG=2`: Shows processing steps and actual secret values
@@ -187,9 +187,15 @@ BWENV_DEBUG=0 direnv allow   # Silent
 
 ## 🖼️ Screenshots
 
-| Interactive Selection Screenshot     | Init Screenshot             |
-| ------------------------------------ | --------------------------- |
-| ![folders](./assets/interactive.png) | ![debug](./assets/init.png) |
+### Interactive Selection
+<div align="center">
+  <img src="./assets/bwenv-interactive.png" alt="Interactive folder selection" width="600"/>
+</div>
+
+### Init Command
+<div align="center">
+  <img src="./assets/bwenv-init.png" alt="Init command output" width="600"/>
+</div>
 
 ---
 
