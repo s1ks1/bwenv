@@ -213,5 +213,4 @@ Pull requests welcome! For major changes, open an issue first to discuss what yo
 
 <div align="center">
   <b>Made with ❤️ for easy development</b>
-  <b>Check out my profile: https://buymeacoffee.com/s1ks1</b>
 </div>
