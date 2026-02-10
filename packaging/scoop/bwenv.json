@@ -1,0 +1,26 @@
+{
+  "version": "VERSION",
+  "description": "Bitwarden + direnv helper — sync secrets from Bitwarden into your shell environment",
+  "homepage": "https://github.com/s1ks1/bwenv",
+  "license": "MIT",
+  "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/vVERSION.tar.gz",
+  "hash": "PLACEHOLDER",
+  "extract_dir": "bwenv-VERSION",
+  "installer": {
+    "script": [
+      "New-Item -ItemType Directory -Force -Path \"$env:USERPROFILE\\.config\\direnv\\lib\" | Out-Null",
+      "Copy-Item \"$dir\\setup\\bitwarden_folders.sh\" \"$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh\"",
+      "Copy-Item \"$dir\\setup\\bwenv.bat\" \"$dir\\bwenv.bat\""
+    ]
+  },
+  "uninstaller": {
+    "script": [
+      "Remove-Item -Force -ErrorAction SilentlyContinue \"$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh\""
+    ]
+  },
+  "bin": "bwenv.bat",
+  "checkver": "github",
+  "autoupdate": {
+    "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/v$version.tar.gz"
+  }
+}

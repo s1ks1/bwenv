@@ -116,11 +116,53 @@ if "%1"=="init" (
     del /q .envrc 2>nul
     echo ✅ .envrc removed
 
+) else if "%1"=="test" (
+    echo 🧪 Testing bwenv installation...
+    echo.
+    echo 📋 Checking dependencies:
+
+    where bw >nul 2>&1
+    if errorlevel 1 (
+        echo   ❌ Bitwarden CLI: not installed
+    ) else (
+        for /f "delims=" %%v in ('bw --version 2^>nul') do echo   ✅ Bitwarden CLI: %%v
+    )
+
+    where jq >nul 2>&1
+    if errorlevel 1 (
+        echo   ❌ jq: not installed
+    ) else (
+        for /f "delims=" %%v in ('jq --version 2^>nul') do echo   ✅ jq: %%v
+    )
+
+    where direnv >nul 2>&1
+    if errorlevel 1 (
+        echo   ❌ direnv: not installed
+    ) else (
+        for /f "delims=" %%v in ('direnv version 2^>nul') do echo   ✅ direnv: %%v
+    )
+
+    echo.
+    echo 📋 Checking configuration:
+
+    if exist "%HELPER_SCRIPT%" (
+        echo   ✅ Helper script: %HELPER_SCRIPT%
+    ) else (
+        echo   ❌ Helper script: not found at %HELPER_SCRIPT%
+    )
+
+    if defined BW_SESSION (
+        echo   ✅ BW_SESSION: set
+    ) else (
+        echo   ⚠️  BW_SESSION: not set
+    )
+
 ) else (
     echo Usage:
     echo   bwenv [--debug[=LEVEL]^|--quiet] init          - Manual folder input
-    echo   bwenv [--debug[=LEVEL]^|--quiet] interactive   - Interactive folder selection  
+    echo   bwenv [--debug[=LEVEL]^|--quiet] interactive   - Interactive folder selection
     echo   bwenv remove                                  - Remove .envrc
+    echo   bwenv test                                    - Test installation
     echo.
     echo Debug options:
     echo   --quiet, -q     No debug output ^(BWENV_DEBUG=0^)
