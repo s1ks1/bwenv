@@ -18,62 +18,77 @@
 - **Automatic `.envrc` generation**: Instantly create a ready-to-use `.envrc` for direnv
 - **Secure session management**: Handles Bitwarden session unlocking for you
 - **Debug mode**: See exactly which secrets are loaded
-- **Easy install/uninstall**: One command setup & cleanup
+- **Cross-platform**: Linux, macOS, and Windows support
+- **Easy install/update/uninstall**: One command setup & cleanup via package managers or scripts
+
+---
+
+## 📦 Prerequisites
+
+| Dependency | Description |
+|---|---|
+| [Bitwarden CLI](https://bitwarden.com/help/cli/) | Access your vault from the command line |
+| [direnv](https://direnv.net/) | Automatically load/unload environment variables |
+| [jq](https://stedolan.github.io/jq/) | JSON processor for parsing Bitwarden data |
 
 ---
 
 ## 🛠️ Installation
 
-### Quick Install
+### One-Line Install
+
+**Linux / macOS:**
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
+```
+
+### Package Managers
+
+**Homebrew (macOS / Linux):**
+
+```bash
+brew tap s1ks1/bwenv
+brew install bwenv
+```
+
+**Scoop (Windows):**
+
+```powershell
+scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
+scoop install bwenv
+```
+
+### From Source (Linux / macOS)
+
+```bash
+git clone https://github.com/s1ks1/bwenv.git
+cd bwenv
 make install
+make setup-path   # adds ~/.local/bin to PATH if needed
 ```
 
-This will:
-
-- Copy helper scripts to `~/.config/direnv/lib`
-- Install the `bwenv` CLI to `~/.local/bin` (Unix/macOS) or `%USERPROFILE%\.local\bin` (Windows)
-- Make everything executable
-
-> **Note:** Requires [Bitwarden CLI](https://bitwarden.com/help/cli/) and [jq](https://stedolan.github.io/jq/) installed.
-
-### Platform-Specific Setup
-
-#### Linux/macOS
-
-After installation, you may need to add `~/.local/bin` to your PATH:
+### Uninstall
 
 ```bash
-# Automatic setup (recommended)
-make setup-path
+# Linux / macOS (if installed via script or make)
+curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/uninstall.sh | bash
+# or: make uninstall
 
-# Manual setup - Add to your shell config (~/.bashrc, ~/.zshrc, etc.)
-export PATH="$HOME/.local/bin:$PATH"
-```
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/s1ks1/bwenv/main/uninstall.ps1 | iex
 
-Then restart your terminal or run:
-```bash
-source ~/.bashrc  # or ~/.zshrc
-```
+# Homebrew
+brew uninstall bwenv
 
-#### Windows
-
-On Windows, make sure `%USERPROFILE%\.local\bin` is in your PATH environment variable:
-
-```cmd
-# Add to PATH (PowerShell as Administrator)
-$env:PATH += ";$env:USERPROFILE\.local\bin"
-[Environment]::SetEnvironmentVariable("PATH", $env:PATH, [EnvironmentVariableTarget]::User)
-```
-
-### Available Commands
-
-```bash
-make help        # Show all available commands
-make install     # Install bwenv CLI
-make setup-path  # Add ~/.local/bin to PATH automatically (Linux/macOS)
-make uninstall   # Remove bwenv CLI
+# Scoop
+scoop uninstall bwenv
 ```
 
 ---
@@ -122,40 +137,38 @@ bwenv remove
 
 ### Debug Options
 
-- `--quiet, -q`: No debug output (BWENV_DEBUG=0)
-- `--debug=1`: Show steps only, hide secrets (default)
-- `--debug=2` or `--debug`: Show steps and secrets (full debug)
+| Flag | Level | Description |
+|---|---|---|
+| `--quiet`, `-q` | 0 | No debug output |
+| *(default)* | 1 | Show steps, hide secrets |
+| `--debug=2`, `--debug` | 2 | Show steps and secrets |
 
 ---
 
 ## 🧩 How It Works
 
-- **Helper script**: Loads all custom fields from items in the selected Bitwarden folder as environment variables
-- **Smart debugging**:
-  - `BWENV_DEBUG=0`: Silent mode
-  - `BWENV_DEBUG=1`: Shows processing steps, hides secret values (default)
-  - `BWENV_DEBUG=2`: Shows processing steps and actual secret values
-- **Session**: Uses `BW_SESSION` for secure access to your vault
-- **Auto-setup**: Automatically configures direnv hooks in your shell
+1. **`bwenv init`** or **`bwenv interactive`** unlocks your Bitwarden vault and generates a `.envrc` file
+2. The `.envrc` loads the **helper script** (`bitwarden_folders.sh`) via direnv's `use` mechanism
+3. The helper reads all custom fields from items in the selected Bitwarden folder
+4. Each field is exported as an environment variable in your shell
+
+**Session**: Uses `BW_SESSION` for secure access to your vault — no secrets stored on disk.
 
 ---
 
 ## 📦 Example Workflow
 
 ```bash
-# Install and setup
-make install
-make setup-path              # Add ~/.local/bin to PATH (Linux/macOS)
+# Install
+curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | bash
 
-# Test installation
+# Verify
 bwenv test
 
 # Initialize secrets
-bwenv init                   # Manual folder entry
-# or
-bwenv interactive           # Pick from list
+bwenv init              # or: bwenv interactive
 
-# Allow direnv to load secrets (with debug info)
+# Allow direnv to load secrets
 direnv allow
 
 # Verify secrets are loaded
@@ -163,24 +176,6 @@ echo $YOUR_SECRET_VAR
 
 # Remove secrets when done
 bwenv remove
-```
-
-### Debug Examples
-
-```bash
-# Quiet mode (no debug output)
-bwenv --quiet init
-
-# Default mode (show steps, hide secrets)
-bwenv init
-
-# Full debug (show steps and secrets)
-bwenv --debug=2 interactive
-
-# Test with different debug levels
-BWENV_DEBUG=1 direnv allow   # Steps only
-BWENV_DEBUG=2 direnv allow   # Full debug
-BWENV_DEBUG=0 direnv allow   # Silent
 ```
 
 ---
@@ -207,7 +202,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## 🤝 Contributing
 
-Pull requests welcome! For major changes, open an issue first to discuss what you’d like to change.
+Pull requests welcome! For major changes, open an issue first to discuss what you'd like to change.
 
 ---
 

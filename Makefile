@@ -1,91 +1,89 @@
 SHELL := /bin/bash
-OS := $(shell uname 2>/dev/null || echo Windows)
+OS := $(shell uname -s 2>/dev/null || echo Windows_NT)
 
 INSTALL_LIB := $(HOME)/.config/direnv/lib
 INSTALL_BIN := $(HOME)/.local/bin
 
+VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+
 all: install
 
 help:
-	@echo "🔧 Bitwarden + direnv helper - Available commands:"
-	@echo "  make install     - Install bwenv CLI"
-	@echo "  make setup-path  - Add ~/.local/bin to PATH automatically"
-	@echo "  make uninstall   - Remove bwenv CLI"
-	@echo "  make help        - Show this help message"
+	@echo "🔧 bwenv $(VERSION) — Available commands:"
+	@echo ""
+	@echo "  make install      Install bwenv CLI and helper script"
+	@echo "  make uninstall    Remove bwenv CLI and helper script"
+	@echo "  make setup-path   Add ~/.local/bin to PATH (Linux/macOS)"
+	@echo "  make check-deps   Check required dependencies"
+	@echo "  make help         Show this help message"
+
+check-deps:
+	@echo "📋 Checking dependencies..."
+	@command -v bw >/dev/null 2>&1 && echo "  ✅ bw (Bitwarden CLI)" || echo "  ❌ bw (Bitwarden CLI) — https://bitwarden.com/help/cli/"
+	@command -v direnv >/dev/null 2>&1 && echo "  ✅ direnv" || echo "  ❌ direnv — https://direnv.net/"
+	@command -v jq >/dev/null 2>&1 && echo "  ✅ jq" || echo "  ❌ jq — https://stedolan.github.io/jq/"
 
 install:
-	@echo "🔧 Installing Bitwarden + direnv helper..."
-ifeq ($(OS),Windows_NT)
-	@powershell -Command "New-Item -ItemType Directory -Force -Path $$env:USERPROFILE\\.config\\direnv\\lib | Out-Null; Copy-Item setup\\bitwarden_folders.sh $$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh; New-Item -ItemType Directory -Force -Path $$env:USERPROFILE\\.local\\bin | Out-Null; Copy-Item setup\\bwenv.bat $$env:USERPROFILE\\.local\\bin\\bwenv.bat; Write-Host '✅ bwenv CLI installed. Use \"bwenv init\" or \"bwenv interactive\" in projects.'; Write-Host '📝 Make sure %USERPROFILE%\\.local\\bin is in your PATH environment variable.'"
-else
+	@echo "🔧 Installing bwenv..."
 	@mkdir -p $(INSTALL_LIB)
-	@cp setup/bitwarden_folders.sh $(INSTALL_LIB)/
+	@cp setup/bitwarden_folders.sh $(INSTALL_LIB)/bitwarden_folders.sh
 	@chmod +x $(INSTALL_LIB)/bitwarden_folders.sh
 	@mkdir -p $(INSTALL_BIN)
 	@cp setup/bwenv $(INSTALL_BIN)/bwenv
 	@chmod +x $(INSTALL_BIN)/bwenv
-	@echo "✅ bwenv CLI installed. Use 'bwenv init' or 'bwenv interactive' in projects."
+	@echo "✅ bwenv installed"
 	@echo ""
-	@echo "📝 Important: Make sure $(INSTALL_BIN) is in your PATH"
-	@if ! echo "$$PATH" | grep -q "$(INSTALL_BIN)"; then \
-		echo "⚠️  $(INSTALL_BIN) is not in your PATH"; \
-		echo "   To fix this automatically, run: make setup-path"; \
-		echo "   Or manually add this line to your shell config file (~/.bashrc, ~/.zshrc, etc.):"; \
-		echo "   export PATH=\"$(INSTALL_BIN):\$$PATH\""; \
-		echo "   Then restart your terminal or run: source ~/.bashrc"; \
+	@if echo "$$PATH" | tr ':' '\n' | grep -qx "$(INSTALL_BIN)"; then \
+		echo "✅ $(INSTALL_BIN) is in your PATH"; \
 	else \
-		echo "✅ $(INSTALL_BIN) is already in your PATH"; \
+		echo "⚠️  $(INSTALL_BIN) is not in your PATH"; \
+		echo "   Run 'make setup-path' or add it manually to your shell config"; \
 	fi
 	@echo ""
-	@echo "📝 Setting up direnv hook..."
 	@if command -v direnv >/dev/null 2>&1; then \
-		if [ -f ~/.bashrc ] && ! grep -q "direnv hook bash" ~/.bashrc; then \
+		SHELL_NAME=$$(basename "$$SHELL"); \
+		if [ "$$SHELL_NAME" = "bash" ] && [ -f ~/.bashrc ] && ! grep -q "direnv hook bash" ~/.bashrc; then \
 			echo 'eval "$$(direnv hook bash)"' >> ~/.bashrc; \
 			echo "✅ Added direnv hook to ~/.bashrc"; \
 		fi; \
-		if [ -f ~/.zshrc ] && ! grep -q "direnv hook zsh" ~/.zshrc; then \
+		if [ "$$SHELL_NAME" = "zsh" ] && [ -f ~/.zshrc ] && ! grep -q "direnv hook zsh" ~/.zshrc; then \
 			echo 'eval "$$(direnv hook zsh)"' >> ~/.zshrc; \
 			echo "✅ Added direnv hook to ~/.zshrc"; \
 		fi; \
-		echo "📝 Please restart your terminal for direnv to work properly"; \
 	else \
-		echo "⚠️  direnv is not installed. Please install it first:"; \
-		echo "   Ubuntu/Debian: sudo apt install direnv"; \
-		echo "   Arch: sudo pacman -S direnv"; \
-		echo "   macOS: brew install direnv"; \
+		echo "⚠️  direnv not installed — hook setup skipped"; \
 	fi
-endif
+	@echo ""
+	@echo "Run 'bwenv test' to verify your setup."
 
 setup-path:
-	@echo "🔧 Setting up PATH for bwenv..."
-	@if ! echo "$$PATH" | grep -q "$(INSTALL_BIN)"; then \
-		if [ -f ~/.bashrc ]; then \
-			if ! grep -q "$(INSTALL_BIN)" ~/.bashrc; then \
-				echo 'export PATH="$(INSTALL_BIN):$$PATH"' >> ~/.bashrc; \
-				echo "✅ Added $(INSTALL_BIN) to ~/.bashrc"; \
+	@SHELL_NAME=$$(basename "$$SHELL"); \
+	case "$$SHELL_NAME" in \
+		bash) RC="$$HOME/.bashrc" ;; \
+		zsh)  RC="$$HOME/.zshrc" ;; \
+		fish) RC="$$HOME/.config/fish/config.fish" ;; \
+		*)    echo "⚠️  Unknown shell: $$SHELL_NAME — add $(INSTALL_BIN) to PATH manually"; exit 0 ;; \
+	esac; \
+	if [ -f "$$RC" ]; then \
+		if ! grep -q "$(INSTALL_BIN)" "$$RC"; then \
+			if [ "$$SHELL_NAME" = "fish" ]; then \
+				echo 'set -gx PATH $(INSTALL_BIN) $$PATH' >> "$$RC"; \
 			else \
-				echo "✅ $(INSTALL_BIN) already in ~/.bashrc"; \
+				echo 'export PATH="$(INSTALL_BIN):$$PATH"' >> "$$RC"; \
 			fi; \
+			echo "✅ Added $(INSTALL_BIN) to $$RC"; \
+			echo "   Restart your terminal or run: source $$RC"; \
+		else \
+			echo "✅ $(INSTALL_BIN) already in $$RC"; \
 		fi; \
-		if [ -f ~/.zshrc ]; then \
-			if ! grep -q "$(INSTALL_BIN)" ~/.zshrc; then \
-				echo 'export PATH="$(INSTALL_BIN):$$PATH"' >> ~/.zshrc; \
-				echo "✅ Added $(INSTALL_BIN) to ~/.zshrc"; \
-			else \
-				echo "✅ $(INSTALL_BIN) already in ~/.zshrc"; \
-			fi; \
-		fi; \
-		echo "📝 Please restart your terminal or run: source ~/.bashrc (or ~/.zshrc)"; \
 	else \
-		echo "✅ $(INSTALL_BIN) is already in your PATH"; \
+		echo "⚠️  $$RC not found — add $(INSTALL_BIN) to PATH manually"; \
 	fi
 
 uninstall:
-	@echo "🧹 Removing bwenv installation..."
-ifeq ($(OS),Windows_NT)
-	@powershell -Command "Remove-Item -Force -ErrorAction SilentlyContinue $$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh; Remove-Item -Force -ErrorAction SilentlyContinue $$env:USERPROFILE\\.local\\bin\\bwenv.bat; Write-Host '✅ bwenv removed'"
-else
+	@echo "🧹 Uninstalling bwenv..."
 	@rm -f $(INSTALL_LIB)/bitwarden_folders.sh
 	@rm -f $(INSTALL_BIN)/bwenv
 	@echo "✅ bwenv removed"
-endif
+
+.PHONY: all help install uninstall setup-path check-deps
