@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g., v1.0.1)"
+        description: "Version to release (e.g., v1.1.0)"
         required: true
         type: string
 
@@ -24,9 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y zip jq
+        run: sudo apt-get update && sudo apt-get install -y zip
 
       - name: Get version
         id: version
@@ -37,39 +35,58 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/}"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building version: ${VERSION}"
 
       - name: Build release packages
         run: |
           chmod +x scripts/build-release.sh
           ./scripts/build-release.sh ${{ steps.version.outputs.VERSION }}
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          if [ -f releases/RELEASE_NOTES.md ]; then
-            echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-            cat releases/RELEASE_NOTES.md >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "CHANGELOG=Release ${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
-          name: ${{ steps.version.outputs.VERSION }}
-          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          name: bwenv ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Installation
+
+            **Linux/macOS (one-line install):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | bash
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
+            ```
+
+            **Homebrew (macOS/Linux):**
+            ```bash
+            brew tap s1ks1/bwenv
+            brew install bwenv
+            ```
+
+            **Scoop (Windows):**
+            ```powershell
+            scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
+            scoop install bwenv
+            ```
+
+            **Manual:** Download the archive for your platform below, extract, and run `make install` (Linux/macOS) or `install.ps1` (Windows).
+
+            See [README](https://github.com/s1ks1/bwenv#readme) for full documentation.
           draft: false
           prerelease: false
           files: |
-            releases/*
+            releases/*.tar.gz
+            releases/*.zip
+            releases/checksums.txt
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload checksums as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: checksums-${{ steps.version.outputs.VERSION }}
-          path: releases/checksums.txt
-          retention-days: 90
+      - name: Update Homebrew formula
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          TARBALL_URL="https://github.com/s1ks1/bwenv/archive/refs/tags/${VERSION}.tar.gz"
+          echo "Homebrew formula template is in packaging/homebrew/bwenv.rb"
+          echo "Update VERSION to ${VERSION} and sha256 after release"
+          echo "TARBALL_URL=${TARBALL_URL}"
