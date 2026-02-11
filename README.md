@@ -25,11 +25,20 @@
 
 ## 📦 Prerequisites
 
+**Linux / macOS:**
+
 | Dependency | Description |
 |---|---|
 | [Bitwarden CLI](https://bitwarden.com/help/cli/) | Access your vault from the command line |
 | [direnv](https://direnv.net/) | Automatically load/unload environment variables |
-| [jq](https://stedolan.github.io/jq/) | JSON processor for parsing Bitwarden data |
+| [jq](https://stedolan.github.io/jq/) | JSON processor (auto-installed by the installer if missing) |
+
+**Windows:**
+
+| Dependency | Description |
+|---|---|
+| [Bitwarden CLI](https://bitwarden.com/help/cli/) | Access your vault from the command line |
+| [direnv](https://direnv.net/) | Automatically load/unload environment variables |
 
 ---
 
