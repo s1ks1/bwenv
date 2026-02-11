@@ -8,24 +8,23 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/internal/check"
 	"github.com/s1ks1/bwenv/internal/envrc"
 	"github.com/s1ks1/bwenv/internal/ui"
 )
 
 // Version is set at build time via -ldflags.
-var Version = "dev"
+// Overridden by GoReleaser or Makefile via: -ldflags "-X main.Version=v2.0.0"
+var Version = "v2.0.0-dev"
 
 func main() {
 	// Parse command from arguments, skipping any flags.
 	args := os.Args[1:]
 	command := ""
-	flags := []string{}
 
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			flags = append(flags, arg)
-		} else if command == "" {
+		if !strings.HasPrefix(arg, "-") && command == "" {
 			command = arg
 		}
 	}
@@ -36,17 +35,20 @@ func main() {
 		// Full interactive TUI flow: pick provider → unlock vault → pick folder → generate .envrc
 		runInit()
 
-	case "export":
+	case "export", "load":
 		// Non-interactive export for use inside .envrc files.
+		// "load" is an alias for "export" for convenience.
 		// Usage: bwenv export --provider bitwarden --folder "MyFolder"
 		runExport(args)
 
-	case "remove":
+	case "remove", "clean":
 		// Remove .envrc from the current directory.
+		// "clean" is an alias for "remove" for convenience.
 		runRemove()
 
-	case "test":
+	case "test", "doctor":
 		// Check all dependencies and show a status report.
+		// "doctor" is an alias for "test" (common CLI pattern).
 		runTest()
 
 	case "version", "--version", "-v":
@@ -96,7 +98,7 @@ func runRemove() {
 	}
 
 	if removed {
-		ui.PrintSuccess(".envrc removed from current directory")
+		ui.PrintSuccess("🗑  .envrc removed from current directory")
 	} else {
 		ui.PrintWarning("No .envrc found in current directory")
 	}
@@ -133,22 +135,33 @@ func parseExportFlags(args []string) (provider, folder string) {
 func printUsage() {
 	ui.PrintBanner(Version)
 
-	fmt.Println("Usage: bwenv <command> [options]")
+	// Styles for the help output.
+	cmdStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#0066CC", Dark: "#58A6FF"})
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"})
+	flagStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#6B21A8", Dark: "#C084FC"})
+	exampleStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#16A34A", Dark: "#4ADE80"})
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#374151", Dark: "#E5E7EB"})
+
+	fmt.Printf("  %s\n\n", headerStyle.Render("Usage: bwenv <command> [options]"))
+
+	fmt.Printf("  %s\n\n", headerStyle.Render("Commands:"))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("init       "), descStyle.Render("🚀 Interactive setup — pick provider, folder, generate .envrc"))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("export     "), descStyle.Render("📤 Output env vars for .envrc (non-interactive)"))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("remove     "), descStyle.Render("🗑  Remove .envrc from the current directory"))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("test       "), descStyle.Render("🩺 Check dependencies and configuration"))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("version    "), descStyle.Render("📋 Show version"))
 	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  init          Interactive setup — pick provider, folder, and generate .envrc")
-	fmt.Println("  export        Output env vars for use in .envrc (non-interactive)")
-	fmt.Println("  remove        Remove .envrc from the current directory")
-	fmt.Println("  test          Check dependencies and configuration")
-	fmt.Println("  version       Show version")
+
+	fmt.Printf("  %s\n\n", headerStyle.Render("Export flags:"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--provider "), descStyle.Render("Secret provider: bitwarden, 1password"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder   "), descStyle.Render("Folder or vault name to load secrets from"))
 	fmt.Println()
-	fmt.Println("Export flags:")
-	fmt.Println("  --provider    Secret provider: bitwarden, 1password")
-	fmt.Println("  --folder      Folder/vault name to load secrets from")
+
+	fmt.Printf("  %s\n\n", headerStyle.Render("Examples:"))
+	fmt.Printf("    %s\n", exampleStyle.Render("bwenv init"))
+	fmt.Printf("    %s\n", exampleStyle.Render("bwenv export --provider bitwarden --folder \"MySecrets\""))
+	fmt.Printf("    %s\n", exampleStyle.Render("bwenv test"))
 	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  bwenv init")
-	fmt.Println("  bwenv export --provider bitwarden --folder \"MySecrets\"")
-	fmt.Println("  bwenv test")
-	fmt.Println()
+
+	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, doctor → test"))
 }

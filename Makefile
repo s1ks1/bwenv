@@ -18,8 +18,11 @@
 APP_NAME    := bwenv
 MODULE      := github.com/s1ks1/bwenv
 
-# Version is derived from the latest git tag, falling back to "dev".
-VERSION     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+# Version detection strategy:
+#   1. If we're exactly on a tag (e.g. v2.0.0) → use that tag
+#   2. Otherwise → use "v2.0.0-dev" so dev builds don't show stale v1.x tags
+# GoReleaser and CI override this via ldflags for real releases.
+VERSION     := $(shell git describe --tags --exact-match 2>/dev/null || echo "v2.0.0-dev")
 COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE  := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 

@@ -2,12 +2,20 @@
 // This file ties together all the TUI components (provider picker, folder picker,
 // authentication, and .envrc generation) into a single interactive flow.
 // It is the main entry point for the "bwenv init" command.
+//
+// The flow now also:
+//   - Previews which variables will be loaded (showing names, not values)
+//   - Automatically runs "direnv allow" so the user doesn't see the scary
+//     "direnv: error .envrc is blocked" message
+//   - Shows a beautiful final summary with emojis
 package ui
 
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,10 +29,15 @@ import (
 //  3. Authenticate with the chosen provider (unlock vault / sign in).
 //  4. Fetch and display the list of folders/vaults from the provider.
 //  5. Let the user pick a folder to load secrets from.
-//  6. Generate a .envrc file in the current directory.
+//  6. Preview which environment variables will be loaded.
+//  7. Generate a .envrc file in the current directory.
+//  8. Automatically run "direnv allow" to approve the .envrc.
 //
 // Returns an error if any step fails or if the user cancels.
 func RunInitFlow(version string) error {
+	// Total number of steps shown to the user (for the [N/M] progress indicator).
+	const totalSteps = 6
+
 	// -- Step 0: Show the welcome banner --
 	PrintBanner(version)
 
@@ -47,10 +60,13 @@ func RunInitFlow(version string) error {
 
 	if len(available) == 1 {
 		chosenProvider = available[0]
-		PrintInfo(fmt.Sprintf("Using %s (only available provider)", chosenProvider.Name()))
+		PrintStep(1, totalSteps, fmt.Sprintf("🔑 Using %s (only available provider)", formatProviderName(chosenProvider.Name())))
 		fmt.Println()
 	} else {
 		// Launch the interactive provider picker TUI.
+		PrintStep(1, totalSteps, "🔑 Select a secret provider")
+		fmt.Println()
+
 		pickerModel := NewProviderPicker(allProviders)
 		program := tea.NewProgram(pickerModel)
 
@@ -61,8 +77,7 @@ func RunInitFlow(version string) error {
 
 		result := finalModel.(ProviderPickerModel)
 		if result.Cancelled() {
-			fmt.Println()
-			PrintWarning("Cancelled by user")
+			printCancelled()
 			os.Exit(0)
 		}
 
@@ -70,13 +85,13 @@ func RunInitFlow(version string) error {
 		if chosenProvider == nil {
 			return fmt.Errorf("no provider was selected")
 		}
+
+		fmt.Println()
+		PrintSuccess(fmt.Sprintf("Selected: %s", chosenProvider.Name()))
 	}
 
-	fmt.Println()
-	PrintStep(1, 4, fmt.Sprintf("Selected provider: %s", formatProviderName(chosenProvider.Name())))
-
 	// -- Step 3: Authenticate with the provider --
-	PrintStep(2, 4, "Authenticating...")
+	PrintStep(2, totalSteps, "🔓 Authenticating with "+chosenProvider.Name()+"...")
 	fmt.Println()
 
 	session, err := chosenProvider.Authenticate()
@@ -84,11 +99,11 @@ func RunInitFlow(version string) error {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
-	PrintSuccess("Authentication successful")
+	PrintSuccess("Vault unlocked")
 	fmt.Println()
 
 	// -- Step 4: Fetch the folder list --
-	PrintStep(3, 4, "Fetching folders...")
+	PrintStep(3, totalSteps, "📂 Fetching folders from "+chosenProvider.Name()+"...")
 
 	folders, err := chosenProvider.ListFolders(session)
 	if err != nil {
@@ -103,6 +118,9 @@ func RunInitFlow(version string) error {
 	fmt.Println()
 
 	// -- Step 5: Folder selection via interactive TUI --
+	PrintStep(4, totalSteps, "📁 Pick a folder to load secrets from")
+	fmt.Println()
+
 	folderModel := NewFolderPicker(folders, chosenProvider.Name())
 	folderProgram := tea.NewProgram(folderModel)
 
@@ -113,8 +131,7 @@ func RunInitFlow(version string) error {
 
 	folderResult := finalFolderModel.(FolderPickerModel)
 	if folderResult.Cancelled() {
-		fmt.Println()
-		PrintWarning("Cancelled by user")
+		printCancelled()
 		os.Exit(0)
 	}
 
@@ -124,10 +141,30 @@ func RunInitFlow(version string) error {
 	}
 
 	fmt.Println()
-	PrintSuccess(fmt.Sprintf("Selected folder: %s", chosenFolder.Name))
+	PrintSuccess(fmt.Sprintf("Selected: %s", chosenFolder.Name))
+	fmt.Println()
 
-	// -- Step 6: Generate the .envrc file --
-	PrintStep(4, 4, "Generating .envrc...")
+	// -- Step 6: Preview secrets (show variable names, not values) --
+	PrintStep(5, totalSteps, "🔍 Scanning secrets in folder...")
+
+	varNames, err := envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
+	if err != nil {
+		// Non-fatal — we can still generate the .envrc, but warn the user.
+		PrintWarning(fmt.Sprintf("Could not preview secrets: %v", err))
+		PrintInfo("The .envrc will still be generated — secrets will load when direnv runs it.")
+		fmt.Println()
+	} else if len(varNames) == 0 {
+		PrintWarning("No secrets found in this folder")
+		PrintInfo("Make sure your vault items have custom fields with names and values.")
+		fmt.Println()
+	} else {
+		// Show a nice preview of which variables will be loaded.
+		printVariablePreview(varNames)
+		fmt.Println()
+	}
+
+	// -- Step 7: Generate the .envrc file --
+	PrintStep(6, totalSteps, "📝 Generating .envrc...")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -138,12 +175,10 @@ func RunInitFlow(version string) error {
 
 	// Check if .envrc already exists and warn the user.
 	if _, statErr := os.Stat(envrcPath); statErr == nil {
-		fmt.Println()
-		PrintWarning(".envrc already exists — it will be overwritten")
+		PrintWarning("Existing .envrc will be overwritten")
 	}
 
-	// Build the .envrc content. The generated file calls "bwenv export" which
-	// handles authentication and secret retrieval at load time.
+	// Build and write the .envrc file.
 	err = envrc.Generate(envrc.Config{
 		ProviderSlug: chosenProvider.Slug(),
 		FolderName:   chosenFolder.Name,
@@ -155,11 +190,81 @@ func RunInitFlow(version string) error {
 		return fmt.Errorf("failed to write .envrc: %w", err)
 	}
 
-	// -- Done! Show the success summary --
+	PrintSuccess(".envrc created")
+
+	// -- Step 8: Auto-run "direnv allow" --
+	// This prevents the scary "direnv: error .envrc is blocked" message.
+	direnvAllowed := false
+	if err := envrc.AllowDirenv(); err != nil {
+		// Non-fatal — just tell the user to do it manually.
+		PrintInfo("Run 'direnv allow' to approve the .envrc file")
+	} else {
+		direnvAllowed = true
+		PrintSuccess("direnv allow — approved automatically")
+	}
+
+	// -- Done! Show the final success summary --
 	fmt.Println()
-	printSuccessSummary(chosenProvider, chosenFolder, cwd)
+	printSuccessSummary(chosenProvider, chosenFolder, cwd, varNames, direnvAllowed)
 
 	return nil
+}
+
+// printCancelled shows a clean cancellation message and exits.
+func printCancelled() {
+	fmt.Println()
+	PrintWarning("Cancelled — no changes were made")
+}
+
+// printVariablePreview shows a compact, styled list of variable names that
+// will be loaded from the chosen folder. Values are never shown.
+func printVariablePreview(varNames []string) {
+	count := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorSuccess).
+		Render(fmt.Sprintf("✓ Found %d variable(s)", len(varNames)))
+
+	fmt.Printf("  %s\n", count)
+
+	// Show the variable names in a compact grid-like layout.
+	// We indent each line and color the names with the secondary color.
+	const maxPerLine = 4
+	const maxShown = 16
+
+	shown := varNames
+	truncated := false
+	if len(shown) > maxShown {
+		shown = shown[:maxShown]
+		truncated = true
+	}
+
+	for i := 0; i < len(shown); i += maxPerLine {
+		end := i + maxPerLine
+		if end > len(shown) {
+			end = len(shown)
+		}
+
+		chunk := shown[i:end]
+		styledNames := make([]string, len(chunk))
+		for j, name := range chunk {
+			styledNames[j] = lipgloss.NewStyle().
+				Foreground(ColorSecondary).
+				Render(name)
+		}
+
+		line := strings.Join(styledNames, lipgloss.NewStyle().
+			Foreground(ColorMuted).Render("  "))
+		fmt.Printf("    %s\n", line)
+	}
+
+	if truncated {
+		remaining := len(varNames) - maxShown
+		more := lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Italic(true).
+			Render(fmt.Sprintf("    ... and %d more", remaining))
+		fmt.Println(more)
+	}
 }
 
 // printNoProvidersHelp shows a helpful error message when no provider CLIs are installed.
@@ -167,7 +272,7 @@ func RunInitFlow(version string) error {
 func printNoProvidersHelp(allProviders []provider.Provider) {
 	fmt.Println()
 	PrintBoxError(
-		"No password manager CLI tools found!",
+		"❌ No password manager CLI tools found!",
 		"",
 		"bwenv needs at least one of the following installed:",
 	)
@@ -188,49 +293,89 @@ func printNoProvidersHelp(allProviders []provider.Provider) {
 }
 
 // printSuccessSummary displays the final success box after .envrc generation.
-// It shows what was configured, where the file was written, and what to do next.
-func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string) {
-	providerTag := FormatProviderTag(p.Slug())
-
-	// Build a nice summary box.
-	PrintBoxSuccess(
-		"✓ .envrc generated successfully!",
+// It shows what was configured, which variables will load, and what happens next.
+func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string, varNames []string, direnvAllowed bool) {
+	// Build the summary lines for the success box.
+	summaryLines := []string{
+		"✅ Setup complete!",
 		"",
-		fmt.Sprintf("  Provider:  %s", p.Name()),
-		fmt.Sprintf("  Folder:    %s", folder.Name),
-		fmt.Sprintf("  Location:  %s/.envrc", cwd),
-	)
+		fmt.Sprintf("  Provider:   %s", p.Name()),
+		fmt.Sprintf("  Folder:     %s", folder.Name),
+		fmt.Sprintf("  Location:   %s/.envrc", cwd),
+	}
+
+	if len(varNames) > 0 {
+		summaryLines = append(summaryLines,
+			fmt.Sprintf("  Variables:  %d secret(s) ready to load", len(varNames)))
+	}
+
+	PrintBoxSuccess(summaryLines...)
+
+	// If direnv was allowed, tell the user things are ready.
+	// If not, tell them what to do.
+	if direnvAllowed {
+		fmt.Println()
+		readyTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorSuccess).
+			Render("⚡ Your secrets are ready!")
+
+		fmt.Printf("  %s\n\n", readyTitle)
+
+		hint1 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Open a new terminal or run")
+		cmd1 := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("cd .")
+		hint1b := lipgloss.NewStyle().Foreground(ColorMuted).Render("to trigger direnv")
+		fmt.Printf("    %s %s %s\n", hint1, cmd1, hint1b)
+
+		hint2 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Verify with")
+		cmd2 := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("env | grep <YOUR_VAR>")
+		fmt.Printf("    %s %s\n", hint2, cmd2)
+
+		hint3 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Remove when done:")
+		cmd3 := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("bwenv remove")
+		fmt.Printf("    %s %s\n", hint3, cmd3)
+	} else {
+		fmt.Println()
+		nextTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorPrimary).
+			Render("Next steps:")
+
+		fmt.Printf("  %s\n\n", nextTitle)
+
+		step1 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Approve the .envrc file:")
+		cmd1 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("direnv allow")
+		fmt.Printf("    1. %s  %s\n", step1, cmd1)
+
+		step2 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Verify secrets are loaded:")
+		cmd2 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("env | grep <YOUR_VAR>")
+		fmt.Printf("    2. %s  %s\n", step2, cmd2)
+
+		step3 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Remove secrets when done:")
+		cmd3 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("bwenv remove")
+		fmt.Printf("    3. %s  %s\n", step3, cmd3)
+	}
 
 	fmt.Println()
 
-	// Next steps hint.
-	nextStepsTitle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Render("Next steps:")
-
-	fmt.Printf("  %s\n\n", nextStepsTitle)
-
-	step1 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Allow direnv to load the file:")
-	cmd1 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("direnv allow")
-	fmt.Printf("    1. %s  %s\n", step1, cmd1)
-
-	step2 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Verify secrets are loaded:")
-	cmd2 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("env | grep <YOUR_VAR>")
-	fmt.Printf("    2. %s  %s\n", step2, cmd2)
-
-	step3 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Remove secrets when done:")
-	cmd3 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("bwenv remove")
-	fmt.Printf("    3. %s  %s\n", step3, cmd3)
-
-	fmt.Println()
-
-	// Reminder about the provider tag in .envrc.
+	// Quiet hint about what happens behind the scenes.
 	hint := lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Italic(true).
-		Render(fmt.Sprintf("  Your .envrc uses provider %s — secrets load automatically via direnv.", providerTag))
+		Render(fmt.Sprintf("  Secrets load automatically when you cd into this directory."))
 	fmt.Println(hint)
+
+	// If direnv is not installed, show a helpful nudge.
+	if _, err := exec.LookPath("direnv"); err != nil {
+		fmt.Println()
+		PrintBoxWarning(
+			"⚠  direnv is not installed",
+			"",
+			"   bwenv generates .envrc files that direnv loads automatically.",
+			"   Install direnv: https://direnv.net/",
+		)
+	}
+
 	fmt.Println()
 }
 
