@@ -1,0 +1,218 @@
+# =============================================================================
+# GoReleaser configuration for bwenv
+# Builds cross-platform binaries and publishes GitHub releases.
+#
+# Usage:
+#   goreleaser release --clean            # Full release (requires GITHUB_TOKEN)
+#   goreleaser release --snapshot --clean  # Local test build (no publish)
+#
+# Docs: https://goreleaser.com
+# =============================================================================
+
+version: 2
+
+# -- Project metadata --
+project_name: bwenv
+
+# -- Before hooks --
+# Run any pre-build steps (e.g. go mod tidy) to ensure a clean state.
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+# -- Build configuration --
+# Cross-compile for Linux, macOS, and Windows on amd64 and arm64.
+builds:
+  - id: bwenv
+    main: .
+    binary: bwenv
+
+    # Inject version info at compile time via ldflags.
+    ldflags:
+      - -s -w
+      - -X 'main.Version={{ .Version }}'
+
+    # Environment variables for a reproducible, static build.
+    env:
+      - CGO_ENABLED=0
+
+    # Target platforms — all major OS/arch combinations.
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+    # Ignore unsupported or uncommon combinations.
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+# -- Archive configuration --
+# Package the binary with LICENSE and README into .tar.gz (Unix) or .zip (Windows).
+archives:
+  - id: default
+    format: tar.gz
+
+    # Use .zip for Windows archives instead of .tar.gz.
+    format_overrides:
+      - goos: windows
+        format: zip
+
+    # Name template for the archive file.
+    name_template: >-
+      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+
+    # Include these extra files in every archive.
+    files:
+      - LICENSE
+      - README.md
+
+# -- Checksum file --
+# Generate a SHA256 checksums file for all release artifacts.
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# -- Snapshot configuration --
+# Used for local test builds (goreleaser release --snapshot).
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+# -- Changelog generation --
+# Automatically generate a changelog from git commits.
+changelog:
+  sort: asc
+  use: github
+  filters:
+    # Exclude these commit types from the changelog.
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "^style:"
+      - "^refactor:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: "🚀 Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "📦 Other Changes"
+      order: 999
+
+# -- GitHub Release --
+release:
+  github:
+    owner: s1ks1
+    name: bwenv
+
+  # Release name template shown on the GitHub Releases page.
+  name_template: "bwenv {{ .Version }}"
+
+  # Prepend a custom header to the auto-generated changelog.
+  header: |
+    ## Installation
+
+    **Homebrew (macOS / Linux):**
+    ```bash
+    brew tap s1ks1/bwenv
+    brew install bwenv
+    ```
+
+    **Scoop (Windows):**
+    ```powershell
+    scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
+    scoop install bwenv
+    ```
+
+    **Manual download:** Grab the archive for your platform below, extract it,
+    and place the `bwenv` binary somewhere in your `PATH`.
+
+    See the [README](https://github.com/s1ks1/bwenv#readme) for full documentation.
+
+  # Footer appended after the changelog.
+  footer: |
+    ---
+    **Full Changelog**: https://github.com/s1ks1/bwenv/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+  # Do not mark as draft — publish immediately.
+  draft: false
+
+  # Do not mark as pre-release.
+  prerelease: auto
+
+  # Make the latest release the default on the GitHub repo page.
+  make_latest: true
+
+# -- Homebrew Tap --
+# Automatically update the Homebrew formula in the tap repository.
+brews:
+  - name: bwenv
+
+    # The tap repository where the formula will be pushed.
+    repository:
+      owner: s1ks1
+      name: homebrew-bwenv
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+
+    # Formula metadata.
+    homepage: "https://github.com/s1ks1/bwenv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    license: "MIT"
+
+    # The directory within the tap repo where the formula is written.
+    directory: Formula
+
+    # Dependencies declared in the Homebrew formula.
+    dependencies:
+      - name: direnv
+        type: optional
+
+    # Installation instructions for the formula.
+    install: |
+      bin.install "bwenv"
+
+    # Post-install message shown to the user.
+    caveats: |
+      To get started, run:
+
+        bwenv test
+
+      Make sure direnv is hooked into your shell:
+        bash: eval "$(direnv hook bash)"
+        zsh:  eval "$(direnv hook zsh)"
+        fish: direnv hook fish | source
+
+    # Test block for `brew test bwenv`.
+    test: |
+      system "#{bin}/bwenv", "version"
+
+# -- Scoop Manifest --
+# Automatically update the Scoop manifest in the bucket repository.
+scoops:
+  - name: bwenv
+
+    # The bucket repository where the manifest will be pushed.
+    repository:
+      owner: s1ks1
+      name: scoop-bwenv
+      branch: main
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+
+    # Manifest metadata.
+    homepage: "https://github.com/s1ks1/bwenv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    license: MIT
+
+    # Post-install message.
+    post_install: ["Write-Host 'Run ''bwenv test'' to verify your setup.' -ForegroundColor Green"]

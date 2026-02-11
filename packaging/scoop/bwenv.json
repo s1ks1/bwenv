@@ -1,33 +1,26 @@
 {
-  "version": "1.1.1",
-  "description": "Bitwarden + direnv helper - sync secrets from Bitwarden into your shell environment",
+  "version": "2.0.0",
+  "description": "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv",
   "homepage": "https://github.com/s1ks1/bwenv",
   "license": "MIT",
-  "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/v1.1.1.tar.gz",
-  "hash": "PLACEHOLDER",
-  "extract_dir": "bwenv-1.1.1",
-  "pre_install": [
-    "New-Item -ItemType Directory -Force -Path \"$env:USERPROFILE\\.config\\direnv\\lib\" | Out-Null"
-  ],
-  "installer": {
-    "script": [
-      "Copy-Item \"$dir\\setup\\bitwarden_folders.sh\" \"$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh\" -Force",
-      "Copy-Item \"$dir\\setup\\bwenv.bat\" \"$dir\\bwenv.bat\" -Force"
-    ]
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/s1ks1/bwenv/releases/download/v2.0.0/bwenv-2.0.0-windows-amd64.zip",
+      "hash": "PLACEHOLDER",
+      "bin": "bwenv.exe"
+    }
   },
-  "uninstaller": {
-    "script": [
-      "Remove-Item -Force -ErrorAction SilentlyContinue \"$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh\""
-    ]
-  },
-  "bin": "bwenv.bat",
   "checkver": "github",
   "autoupdate": {
-    "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/v$version.tar.gz",
-    "hash": {
-      "url": "$baseurl/checksums.txt",
-      "regex": "$sha256\\s+bwenv-v$version-windows\\.zip"
-    },
-    "extract_dir": "bwenv-$version"
-  }
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/bwenv-$version-windows-amd64.zip",
+        "hash": {
+          "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/checksums.txt",
+          "regex": "$sha256\\s+bwenv-$version-windows-amd64\\.zip"
+        }
+      }
+    }
+  },
+  "post_install": "Write-Host 'Run ''bwenv test'' to verify your setup.' -ForegroundColor Green"
 }

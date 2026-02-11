@@ -1,38 +1,71 @@
-# Build and release artifacts
+# =============================================================================
+# bwenv .gitignore — Go project
+# =============================================================================
+
+# -- Build artifacts --
 dist/
 releases/
-*.tar.gz
-*.zip
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
+# -- Test artifacts --
+*.test
+*.out
+coverage.txt
+coverage.html
 
-# Linux
-*~
+# -- Go workspace --
+go.work
+go.work.sum
 
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
-*.log
-
-# Environment files
+# -- Environment and secrets --
 .env
 .envrc
 .env.local
 .env.*.local
 
-# Temporary files
+# -- OS generated files --
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# -- IDE and editor files --
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.bak
 *.tmp
 *.temp
+*~
+.project
+.settings/
+.classpath
+
+# -- Logs --
+*.log
+
+# -- Archives (don't commit release artifacts) --
+*.tar.gz
+*.zip
+
+# -- Temporary and cache directories --
 .cache/
+tmp/
