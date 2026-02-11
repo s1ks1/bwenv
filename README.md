@@ -6,6 +6,8 @@
 
 ---
 
+>**_NOTE_**: Version v2 will be a complete rewrite in a new language, the current solution is not the best for cross platform installations, it also creates many obstacles for development and is not the best looking. As a lover of beautiful terminal applications, I wanted bwenv to become an aesthetically pleasing application even though it is a very simple purpose. With that, the next version goes to Go + Bubble Tea + Lipgloss + Make. The old version still remains in releases with all its advantages and disadvantages and will not be further developed.
+
 ## 🚀 Overview
 
 **bwenv** is a CLI tool that bridges your Bitwarden vault and your shell environment using [direnv](https://direnv.net/). It lets you securely load secrets from any Bitwarden folder directly into your `.envrc`, making secret management for development and deployment a breeze.
