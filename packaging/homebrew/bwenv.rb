@@ -34,7 +34,9 @@ class Bwenv < Formula
     ]
 
     # Build the Go binary and install it to the Homebrew bin directory.
-    system "go", "build", *std_go_args(ldflags:), "."
+    # Use explicit `ldflags: ldflags` for compatibility with older Ruby versions
+    # (the shorthand `ldflags:` requires Ruby 3.1+).
+    system "go", "build", *std_go_args(ldflags: ldflags), "."
   end
 
   def caveats

@@ -1,20 +1,28 @@
 // Package envrc handles generating .envrc files and exporting environment
-// variables from secret providers. It provides three main capabilities:
+// variables from secret providers. It provides these capabilities:
 //
 //  1. Generate() — creates a .envrc file that calls "bwenv export" via direnv.
 //  2. Export() — fetches secrets from a provider and prints "export KEY=VALUE"
-//     lines to stdout, plus a styled summary to stderr.
+//     lines to stdout, plus a rich boxed summary to stderr.
 //  3. Remove() — deletes the .envrc file from the current directory.
+//  4. AllowDirenv() — runs "direnv allow" to approve the .envrc automatically.
+//  5. SilenceDirenvGlobally() — adds DIRENV_LOG_FORMAT="" to the user's shell
+//     RC file so that ALL direnv messages are suppressed system-wide.
 //
-// The generated .envrc silences direnv's own noisy output and delegates all
-// user-facing feedback to bwenv, so the terminal experience stays clean and
-// consistent across all platforms.
+// The generated .envrc sets DIRENV_LOG_FORMAT="" and DIRENV_WARN_TIMEOUT="10m"
+// as in-file defenses. However, the "direnv: loading .envrc" message is printed
+// by direnv BEFORE the .envrc runs, so it can only be suppressed by having
+// DIRENV_LOG_FORMAT="" already in the environment. SilenceDirenvGlobally()
+// handles this by writing it to the user's shell RC (e.g. ~/.zshrc), which
+// ensures zero direnv noise from the very first cd into a project directory.
 package envrc
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,31 +30,52 @@ import (
 	"github.com/s1ks1/bwenv/internal/provider"
 )
 
-// -- Styles used for the export summary printed to stderr --
+// ── Styles for the export summary box (printed to stderr on every direnv load) ──
 
 var (
-	// summaryBrand is the small "bwenv" tag at the start of the summary line.
+	// boxBorder is the border style used for the export summary box.
+	boxBorder = lipgloss.RoundedBorder()
+
+	// summaryBrand is the "bwenv" label rendered above the box.
 	summaryBrand = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.AdaptiveColor{Light: "#0066CC", Dark: "#58A6FF"})
 
-	// summaryMuted is used for secondary info (provider/folder context).
+	// summaryMuted is used for secondary info (separators, hints, dim text).
 	summaryMuted = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"})
 
-	// summarySuccess is the green style for the loaded-variable count.
+	// summarySuccess is the green style for success indicators and counts.
 	summarySuccess = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#16A34A", Dark: "#4ADE80"})
 
-	// summaryVarName is the style for individual variable names in the list.
+	// summaryVarName styles individual variable names inside the box.
 	summaryVarName = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#6B21A8", Dark: "#C084FC"})
 
-	// summaryError is the red style for error messages in the summary.
+	// summaryContext styles the provider/folder line inside the box.
+	summaryContext = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#374151", Dark: "#D1D5DB"})
+
+	// summaryError is the red style for error messages inside the box.
 	summaryError = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"})
+
+	// summaryBox is the bordered box that wraps the entire export summary.
+	summaryBox = lipgloss.NewStyle().
+			BorderStyle(boxBorder).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#0066CC", Dark: "#58A6FF"}).
+			Padding(0, 1)
+
+	// summaryBoxError is the bordered box for error summaries (red border).
+	summaryBoxError = lipgloss.NewStyle().
+			BorderStyle(boxBorder).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"}).
+			Padding(0, 1)
 )
+
+// ── Config ──────────────────────────────────────────────────────────────────
 
 // Config holds all the parameters needed to generate a .envrc file.
 // These are collected during the interactive init flow and written into
@@ -71,13 +100,18 @@ type Config struct {
 	Version string
 }
 
+// ── .envrc generation ───────────────────────────────────────────────────────
+
 // Generate creates a .envrc file in the current directory. The generated file
 // uses direnv's eval mechanism to call "bwenv export", which fetches secrets
 // from the configured provider and folder at shell load time.
 //
 // Key design decisions in the generated .envrc:
-//   - DIRENV_LOG_FORMAT is set to "" to silence direnv's own noisy output
-//     (like "direnv: export +VAR1 +VAR2..."). bwenv handles all user feedback.
+//
+//   - DIRENV_LOG_FORMAT is set to "" to suppress direnv's own export/unload
+//     messages (e.g. "direnv: export +VAR1 +VAR2..."). This takes effect on
+//     the SECOND load and onward (since direnv reads the value before running
+//     the .envrc). For first-load suppression, see SilenceDirenvGlobally().
 //   - DIRENV_WARN_TIMEOUT uses Go duration format ("10m") which is required
 //     by direnv v2.30+ (plain seconds like "600" cause parse errors).
 //   - BW_SESSION is stored for Bitwarden users (the token expires, so the
@@ -95,11 +129,14 @@ func Generate(cfg Config) error {
 	b.WriteString("# ═══════════════════════════════════════════════════════════════\n")
 	b.WriteString("\n")
 
-	// -- Silence direnv's own output --
-	// direnv normally prints noisy messages like "direnv: export +VAR1 +VAR2..."
-	// and "direnv: loading .envrc". We silence these because bwenv prints its
-	// own styled summary to stderr, giving the user a much cleaner experience.
-	b.WriteString("# Silence direnv's default output — bwenv handles all user feedback\n")
+	// -- Silence direnv's log output --
+	// Setting DIRENV_LOG_FORMAT="" suppresses direnv messages like:
+	//   - "direnv: export +VAR1 +VAR2..."
+	//   - "direnv: unloading"
+	// The "direnv: loading .envrc" message is printed BEFORE the .envrc runs,
+	// so it can only be silenced by having this variable already in the shell
+	// environment. bwenv init handles that via SilenceDirenvGlobally().
+	b.WriteString("# Silence direnv's own output — bwenv handles all user feedback\n")
 	b.WriteString("export DIRENV_LOG_FORMAT=\"\"\n")
 	b.WriteString("\n")
 
@@ -108,7 +145,7 @@ func Generate(cfg Config) error {
 	// direnv warns after 5s by default and that looks like an error to users.
 	// We use Go duration format ("10m") which direnv v2.30+ requires.
 	// Plain numbers like "600" cause: "invalid DIRENV_WARN_TIMEOUT: time: missing unit"
-	b.WriteString("# Generous timeout for vault operations (direnv v2.30+ needs Go duration format)\n")
+	b.WriteString("# Generous timeout for vault operations (Go duration format for direnv v2.30+)\n")
 	b.WriteString("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
 	b.WriteString("\n")
 
@@ -123,6 +160,8 @@ func Generate(cfg Config) error {
 	// -- The main payload --
 	// eval runs "bwenv export" which prints "export KEY=VALUE" lines to stdout.
 	// bwenv also prints a styled summary to stderr so the user sees what loaded.
+	// Since bwenv's output does NOT start with "direnv:", it is never confused
+	// with direnv's own messages.
 	b.WriteString("# Load secrets from the provider into the environment\n")
 	b.WriteString(fmt.Sprintf("eval \"$(bwenv export --provider %s --folder %s)\"\n",
 		shellEscape(cfg.ProviderSlug),
@@ -137,6 +176,8 @@ func Generate(cfg Config) error {
 
 	return nil
 }
+
+// ── direnv helpers ──────────────────────────────────────────────────────────
 
 // AllowDirenv runs "direnv allow" in the current directory so the user
 // doesn't have to do it manually after "bwenv init". This prevents the
@@ -160,8 +201,114 @@ func AllowDirenv() error {
 	return nil
 }
 
+// SilenceDirenvGlobally adds `export DIRENV_LOG_FORMAT=""` to the user's
+// shell RC file (e.g. ~/.zshrc, ~/.bashrc). This ensures that ALL direnv
+// messages are suppressed — including "direnv: loading .envrc" which is
+// printed BEFORE the .envrc file runs and therefore cannot be silenced
+// from within .envrc itself.
+//
+// This is a one-time operation that bwenv init calls after generating the
+// .envrc. It is idempotent — if the line already exists in any RC file,
+// it does nothing.
+//
+// Returns (modified bool, filePath string, err error):
+//   - modified=true, filePath="~/.zshrc" → line was added to ~/.zshrc
+//   - modified=false, filePath="~/.zshrc" → already present in ~/.zshrc
+//   - modified=false, filePath="", err → could not determine shell RC
+func SilenceDirenvGlobally() (modified bool, filePath string, err error) {
+	// The magic line we need in the shell RC.
+	const silenceLine = `export DIRENV_LOG_FORMAT=""`
+	const marker = "DIRENV_LOG_FORMAT"
+
+	// Determine which shell RC file to modify.
+	rcPath, err := detectShellRC()
+	if err != nil {
+		return false, "", err
+	}
+
+	// Shorten for display purposes (e.g. /Users/john/.zshrc → ~/.zshrc).
+	displayPath := shortenHomePath(rcPath)
+
+	// Read the existing file content (if it exists).
+	content, err := os.ReadFile(rcPath)
+	if err != nil && !os.IsNotExist(err) {
+		return false, displayPath, fmt.Errorf("could not read %s: %w", displayPath, err)
+	}
+
+	// Check if the marker is already present.
+	if strings.Contains(string(content), marker) {
+		return false, displayPath, nil
+	}
+
+	// Append the silence line with a comment explaining why it's there.
+	appendContent := "\n# Silence direnv messages — bwenv provides its own styled output\n"
+	appendContent += silenceLine + "\n"
+
+	f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return false, displayPath, fmt.Errorf("could not write to %s: %w", displayPath, err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(appendContent); err != nil {
+		return false, displayPath, fmt.Errorf("failed to append to %s: %w", displayPath, err)
+	}
+
+	return true, displayPath, nil
+}
+
+// detectShellRC returns the path to the user's primary shell RC file.
+// It checks the SHELL environment variable and maps to the corresponding RC file.
+func detectShellRC() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not determine home directory: %w", err)
+	}
+
+	// Detect the user's shell from the SHELL env var.
+	shellPath := os.Getenv("SHELL")
+	shellName := filepath.Base(shellPath)
+
+	switch shellName {
+	case "zsh":
+		return filepath.Join(home, ".zshrc"), nil
+	case "bash":
+		// On macOS, .bash_profile is preferred over .bashrc for login shells.
+		if runtime.GOOS == "darwin" {
+			profile := filepath.Join(home, ".bash_profile")
+			if _, err := os.Stat(profile); err == nil {
+				return profile, nil
+			}
+		}
+		return filepath.Join(home, ".bashrc"), nil
+	case "fish":
+		return filepath.Join(home, ".config", "fish", "config.fish"), nil
+	default:
+		// Fallback: try zshrc (default on macOS), then bashrc.
+		if runtime.GOOS == "darwin" {
+			return filepath.Join(home, ".zshrc"), nil
+		}
+		return filepath.Join(home, ".bashrc"), nil
+	}
+}
+
+// shortenHomePath replaces the user's home directory prefix with "~"
+// for more compact and readable display in status messages.
+func shortenHomePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+// ── Export command ───────────────────────────────────────────────────────────
+
 // Export fetches secrets from the specified provider and folder, then prints
-// "export KEY=VALUE" lines to stdout. It also prints a compact, styled summary
+// "export KEY=VALUE" lines to stdout. It also prints a rich, boxed summary
 // to stderr showing which variables were loaded.
 //
 // This function is designed to be called from within an .envrc file via eval:
@@ -169,7 +316,7 @@ func AllowDirenv() error {
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder)"
 //
 // stdout: only "export KEY=VALUE" lines (consumed by eval)
-// stderr: styled summary for the user (visible in the terminal)
+// stderr: styled box summary for the user (visible in the terminal)
 func Export(providerSlug string, folderName string) error {
 	// Look up the requested provider from the registry.
 	p, err := provider.Get(providerSlug)
@@ -239,12 +386,14 @@ func Export(providerSlug string, folderName string) error {
 		varNames = append(varNames, key)
 	}
 
-	// Print a styled summary to stderr so the user sees what happened.
+	// Print a rich, boxed summary to stderr so the user sees what happened.
 	// This goes to stderr to avoid polluting the eval'd stdout.
 	printExportSummary(p.Name(), folderName, varNames)
 
 	return nil
 }
+
+// ── Secret preview ──────────────────────────────────────────────────────────
 
 // PreviewSecrets fetches secrets from the given provider and folder and returns
 // just the key names (not values). This is used during "bwenv init" to show
@@ -261,6 +410,8 @@ func PreviewSecrets(p provider.Provider, session string, folder provider.Folder)
 	}
 	return names, nil
 }
+
+// ── Remove ──────────────────────────────────────────────────────────────────
 
 // Remove deletes the .envrc file in the current directory.
 // Returns (true, nil) if the file was removed, (false, nil) if it didn't exist,
@@ -283,60 +434,94 @@ func Remove() (bool, error) {
 
 // ── Export summary output (printed to stderr) ──────────────────────────────
 
-// printExportSummary prints a compact, styled summary of what was loaded.
+// printExportSummary prints a rich, boxed summary of what was loaded.
 // This is called at the end of Export() and appears in the user's terminal
 // every time direnv loads the .envrc (i.e., when they cd into the directory).
 //
-// The output is intentionally compact — just 2-3 lines — so it's informative
-// without being annoying on repeated loads.
+// The output is a compact bordered box that shows the provider, folder,
+// variable count, and each variable name with a key icon — all styled with
+// Lipgloss so it looks great on every terminal.
 //
 // Example output:
 //
-//	🔐 bwenv · Bitwarden / MySecrets
-//	   ✓ 5 variables loaded: API_KEY, DB_URL, SECRET_TOKEN, AWS_KEY, AWS_SECRET
+//	 🔐 bwenv
+//	╭──────────────────────────────────────────╮
+//	│  Bitwarden / MySecrets                   │
+//	│                                          │
+//	│  ✓ 3 variable(s) loaded                  │
+//	│    🔑 DB_USERNAME                         │
+//	│    🔑 DB_PASSWORD                         │
+//	│    🔑 API_TOKEN                           │
+//	╰──────────────────────────────────────────╯
 func printExportSummary(providerName string, folderName string, varNames []string) {
-	// Line 1: branding + context
-	brand := summaryBrand.Render("🔐 bwenv")
-	context := summaryMuted.Render(fmt.Sprintf("%s / %s", providerName, folderName))
-	fmt.Fprintf(os.Stderr, " %s %s %s\n", brand, summaryMuted.Render("·"), context)
+	var lines []string
 
-	// Line 2: result
+	// Line 1: Provider / Folder context.
+	contextLine := summaryContext.Render(fmt.Sprintf("%s / %s", providerName, folderName))
+	lines = append(lines, contextLine)
+
+	// Empty separator line.
+	lines = append(lines, "")
+
 	if len(varNames) == 0 {
-		warning := summaryError.Render("⚠  No variables found in this folder")
-		fmt.Fprintf(os.Stderr, "    %s\n", warning)
-		return
-	}
+		// No variables found — show a warning.
+		warningLine := summaryError.Render("⚠  No variables found in this folder")
+		lines = append(lines, warningLine)
+	} else {
+		// Success line with count.
+		countLine := summarySuccess.Render(fmt.Sprintf("✓ %d variable(s) loaded", len(varNames)))
+		lines = append(lines, countLine)
 
-	// Build the variable name list. If there are many variables, truncate
-	// the list and show a "+N more" suffix to keep things compact.
-	const maxShown = 8
-	displayNames := make([]string, 0, len(varNames))
-	for i, name := range varNames {
-		if i >= maxShown {
-			break
+		// List each variable name with a key icon.
+		// If there are many variables, show the first batch and summarize the rest.
+		const maxShown = 12
+		shown := varNames
+		truncated := false
+		if len(shown) > maxShown {
+			shown = shown[:maxShown]
+			truncated = true
 		}
-		displayNames = append(displayNames, summaryVarName.Render(name))
+
+		for _, name := range shown {
+			varLine := fmt.Sprintf("  🔑 %s", summaryVarName.Render(name))
+			lines = append(lines, varLine)
+		}
+
+		if truncated {
+			remaining := len(varNames) - maxShown
+			moreLine := summaryMuted.Render(fmt.Sprintf("  ... and %d more", remaining))
+			lines = append(lines, moreLine)
+		}
 	}
 
-	varList := strings.Join(displayNames, summaryMuted.Render(", "))
-	if len(varNames) > maxShown {
-		remaining := len(varNames) - maxShown
-		varList += summaryMuted.Render(fmt.Sprintf(" +%d more", remaining))
-	}
+	// Compose the box content and render it.
+	content := strings.Join(lines, "\n")
+	box := summaryBox.Render(content)
 
-	count := summarySuccess.Render(fmt.Sprintf("✓ %d variable(s) loaded", len(varNames)))
-	fmt.Fprintf(os.Stderr, "    %s: %s\n", count, varList)
+	// Print a header line above the box with the bwenv branding.
+	brand := summaryBrand.Render("🔐 bwenv")
+	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
 }
 
-// printExportError prints a compact error line to stderr during export.
+// printExportError prints a compact boxed error to stderr during export.
 // This replaces the raw error message that would otherwise confuse users
 // when direnv loads the .envrc and something goes wrong.
 func printExportError(label string, err error) {
-	brand := summaryBrand.Render("🔐 bwenv")
+	var lines []string
+
 	errorLabel := summaryError.Render("✗ " + label)
+	lines = append(lines, errorLabel)
+	lines = append(lines, "")
+
 	detail := summaryMuted.Render(err.Error())
-	fmt.Fprintf(os.Stderr, " %s %s %s\n", brand, summaryMuted.Render("·"), errorLabel)
-	fmt.Fprintf(os.Stderr, "    %s\n", detail)
+	lines = append(lines, detail)
+
+	// Compose the error box and render it.
+	content := strings.Join(lines, "\n")
+	box := summaryBoxError.Render(content)
+
+	brand := summaryBrand.Render("🔐 bwenv")
+	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
 }
 
 // ── Shell escaping helpers ─────────────────────────────────────────────────

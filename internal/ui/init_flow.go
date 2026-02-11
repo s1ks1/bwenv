@@ -203,9 +203,22 @@ func RunInitFlow(version string) error {
 		PrintSuccess("direnv allow — approved automatically")
 	}
 
+	// -- Step 9: Silence direnv globally --
+	// Add DIRENV_LOG_FORMAT="" to the user's shell RC so that ALL direnv
+	// messages are suppressed — including "direnv: loading .envrc" which
+	// is printed BEFORE the .envrc runs and can't be silenced from within it.
+	modified, rcFile, silenceErr := envrc.SilenceDirenvGlobally()
+	if silenceErr != nil {
+		// Non-fatal — the .envrc still works, just with some direnv noise on first load.
+		PrintInfo("Could not configure global direnv silence: " + silenceErr.Error())
+	} else if modified {
+		PrintSuccess(fmt.Sprintf("Silenced direnv output in %s", rcFile))
+	}
+	// If !modified && silenceErr == nil, the line was already present — nothing to report.
+
 	// -- Done! Show the final success summary --
 	fmt.Println()
-	printSuccessSummary(chosenProvider, chosenFolder, cwd, varNames, direnvAllowed)
+	printSuccessSummary(chosenProvider, chosenFolder, cwd, varNames, direnvAllowed, modified, rcFile)
 
 	return nil
 }
@@ -294,7 +307,7 @@ func printNoProvidersHelp(allProviders []provider.Provider) {
 
 // printSuccessSummary displays the final success box after .envrc generation.
 // It shows what was configured, which variables will load, and what happens next.
-func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string, varNames []string, direnvAllowed bool) {
+func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string, varNames []string, direnvAllowed bool, rcModified bool, rcFile string) {
 	// Build the summary lines for the success box.
 	summaryLines := []string{
 		"✅ Setup complete!",
@@ -307,6 +320,11 @@ func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd strin
 	if len(varNames) > 0 {
 		summaryLines = append(summaryLines,
 			fmt.Sprintf("  Variables:  %d secret(s) ready to load", len(varNames)))
+	}
+
+	if rcModified {
+		summaryLines = append(summaryLines,
+			fmt.Sprintf("  Shell RC:   %s (direnv silenced)", rcFile))
 	}
 
 	PrintBoxSuccess(summaryLines...)
@@ -362,8 +380,16 @@ func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd strin
 	hint := lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Italic(true).
-		Render(fmt.Sprintf("  Secrets load automatically when you cd into this directory."))
+		Render("  Secrets load automatically when you cd into this directory.")
 	fmt.Println(hint)
+
+	if rcModified {
+		rcHint := lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Italic(true).
+			Render(fmt.Sprintf("  Restart your shell or run: source %s", rcFile))
+		fmt.Println(rcHint)
+	}
 
 	// If direnv is not installed, show a helpful nudge.
 	if _, err := exec.LookPath("direnv"); err != nil {
