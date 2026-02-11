@@ -1,16 +1,18 @@
 {
-  "version": "VERSION",
-  "description": "Bitwarden + direnv helper — sync secrets from Bitwarden into your shell environment",
+  "version": "1.1.1",
+  "description": "Bitwarden + direnv helper - sync secrets from Bitwarden into your shell environment",
   "homepage": "https://github.com/s1ks1/bwenv",
   "license": "MIT",
-  "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/vVERSION.tar.gz",
+  "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/v1.1.1.tar.gz",
   "hash": "PLACEHOLDER",
-  "extract_dir": "bwenv-VERSION",
+  "extract_dir": "bwenv-1.1.1",
+  "pre_install": [
+    "New-Item -ItemType Directory -Force -Path \"$env:USERPROFILE\\.config\\direnv\\lib\" | Out-Null"
+  ],
   "installer": {
     "script": [
-      "New-Item -ItemType Directory -Force -Path \"$env:USERPROFILE\\.config\\direnv\\lib\" | Out-Null",
-      "Copy-Item \"$dir\\setup\\bitwarden_folders.sh\" \"$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh\"",
-      "Copy-Item \"$dir\\setup\\bwenv.bat\" \"$dir\\bwenv.bat\""
+      "Copy-Item \"$dir\\setup\\bitwarden_folders.sh\" \"$env:USERPROFILE\\.config\\direnv\\lib\\bitwarden_folders.sh\" -Force",
+      "Copy-Item \"$dir\\setup\\bwenv.bat\" \"$dir\\bwenv.bat\" -Force"
     ]
   },
   "uninstaller": {
@@ -21,6 +23,11 @@
   "bin": "bwenv.bat",
   "checkver": "github",
   "autoupdate": {
-    "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/v$version.tar.gz"
+    "url": "https://github.com/s1ks1/bwenv/archive/refs/tags/v$version.tar.gz",
+    "hash": {
+      "url": "$baseurl/checksums.txt",
+      "regex": "$sha256\\s+bwenv-v$version-windows\\.zip"
+    },
+    "extract_dir": "bwenv-$version"
   }
 }
