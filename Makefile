@@ -75,13 +75,21 @@ help:
 	@echo ""
 
 # -- Build --
+# Detects Windows via the OS environment variable and appends .exe.
+
+# Binary extension: .exe on Windows, empty on Unix.
+ifeq ($(OS),Windows_NT)
+    EXE := .exe
+else
+    EXE :=
+endif
 
 .PHONY: build
 build:
 	@echo "Building $(APP_NAME) $(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
-	@echo "  ✓ $(BUILD_DIR)/$(APP_NAME)"
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)$(EXE) .
+	@echo "  ✓ $(BUILD_DIR)/$(APP_NAME)$(EXE)"
 
 # -- Run (build + execute) --
 
@@ -90,9 +98,18 @@ run: build
 	@$(BUILD_DIR)/$(APP_NAME) $(ARGS)
 
 # -- Install --
+# Cross-platform install: handles Windows (.exe), macOS, and Linux.
+# On Windows (detected via OS env var), installs to %USERPROFILE%\.local\bin.
 
 .PHONY: install
 install: build
+ifeq ($(OS),Windows_NT)
+	@echo "Installing $(APP_NAME) to $(subst /,\,$(INSTALL_DIR))..."
+	@if not exist "$(subst /,\,$(INSTALL_DIR))" mkdir "$(subst /,\,$(INSTALL_DIR))"
+	@copy /Y "$(subst /,\,$(BUILD_DIR))\$(APP_NAME).exe" "$(subst /,\,$(INSTALL_DIR))\$(APP_NAME).exe" >nul
+	@copy /Y "packaging\windows\bwenv.cmd" "$(subst /,\,$(INSTALL_DIR))\bwenv.cmd" >nul
+	@echo   ✓ Installed to $(INSTALL_DIR)\$(APP_NAME).exe
+else
 	@echo "Installing $(APP_NAME) to $(INSTALL_DIR)..."
 	@mkdir -p $(INSTALL_DIR)
 	@cp $(BUILD_DIR)/$(APP_NAME) $(INSTALL_DIR)/$(APP_NAME)
@@ -106,8 +123,9 @@ install: build
 		echo "  ! $(INSTALL_DIR) is NOT in your PATH"; \
 		echo "    Add it with: export PATH=\"$(INSTALL_DIR):$$PATH\""; \
 	fi
+endif
 	@echo ""
-	@echo "  Run '$(APP_NAME) test' to verify your setup."
+	@echo "  Run '$(APP_NAME) status' to verify your setup."
 
 # -- Uninstall --
 

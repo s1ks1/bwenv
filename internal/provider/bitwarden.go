@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,29 +48,33 @@ func (b *Bitwarden) IsAuthenticated() bool {
 		return false
 	}
 	// Try listing folders to verify the session is still valid.
+	// Capture both stdout and stderr so we can detect error responses.
 	cmd := exec.Command("bw", "list", "folders", "--session", session)
-	out, err := cmd.Output()
-	if err != nil {
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
 		return false
 	}
-	return len(out) > 0
+	out := bytes.TrimSpace(stdout.Bytes())
+	// The output must be a non-empty JSON array to be considered valid.
+	return len(out) > 0 && out[0] == '['
 }
 
 // Authenticate unlocks the Bitwarden vault and returns a session token.
-// It first runs "bw sync" to ensure the local cache is up to date,
-// then prompts the user for their master password via "bw unlock".
+// If BW_SESSION is already set and valid, it reuses it without prompting.
+// Otherwise, it syncs the vault and prompts the user for their master password.
 func (b *Bitwarden) Authenticate() (string, error) {
-	// Sync the vault first (best-effort, don't fail if offline).
-	_ = runSilent("bw", "sync")
-
 	// Check if there's already a valid session in the environment.
 	if session := os.Getenv("BW_SESSION"); session != "" {
-		cmd := exec.Command("bw", "list", "folders", "--session", session)
-		if err := cmd.Run(); err == nil {
+		if b.IsAuthenticated() {
 			return session, nil
 		}
 		// Session expired — fall through to unlock.
 	}
+
+	// Sync the vault first (best-effort, don't fail if offline).
+	_ = runSilent("bw", "sync")
 
 	// Unlock the vault interactively. The "bw unlock --raw" command
 	// prompts for the master password and outputs just the session token.
@@ -96,16 +101,52 @@ type bwFolder struct {
 }
 
 // ListFolders returns all folders in the Bitwarden vault.
+// Sync is NOT called here — it's done once in Authenticate() to avoid
+// redundant network calls.
 func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 	cmd := exec.Command("bw", "list", "folders", "--session", session)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list Bitwarden folders: %w", err)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		stderrStr := strings.TrimSpace(stderr.String())
+		if stderrStr != "" {
+			return nil, fmt.Errorf("failed to list Bitwarden folders: %s", stderrStr)
+		}
+		return nil, fmt.Errorf("failed to list Bitwarden folders: %w (is your session still valid? try 'bwenv logout' then 'bwenv init')", err)
+	}
+
+	out := bytes.TrimSpace(stdout.Bytes())
+
+	// Guard against empty output — this can happen when the session has
+	// expired or the vault is locked. The bw CLI sometimes exits 0 but
+	// produces no JSON output (or outputs an error message to stdout).
+	if len(out) == 0 {
+		return nil, fmt.Errorf(
+			"Bitwarden CLI returned empty output when listing folders.\n" +
+				"    This usually means your session has expired.\n" +
+				"    Run 'bwenv logout' and then 'bwenv init' to re-authenticate")
+	}
+
+	// Verify the output looks like a JSON array before parsing.
+	// The bw CLI can sometimes return an error message as plain text
+	// (e.g. "Your vault is locked.") instead of JSON.
+	if out[0] != '[' {
+		// Try to give a helpful message from whatever bw returned.
+		preview := string(out)
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return nil, fmt.Errorf(
+			"Bitwarden CLI returned unexpected output (expected JSON array):\n    %s\n"+
+				"    Your session may have expired. Run 'bwenv logout' and then 'bwenv init' to re-authenticate",
+			preview)
 	}
 
 	var raw []bwFolder
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse folder list: %w", err)
+		return nil, fmt.Errorf("failed to parse folder list: %w\n    Raw output: %s", err, truncateOutput(out))
 	}
 
 	folders := make([]Folder, 0, len(raw))
@@ -141,14 +182,42 @@ type bwField struct {
 // environment variable — the field name is the key, the field value is the value.
 func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) {
 	cmd := exec.Command("bw", "list", "items", "--folderid", folder.ID, "--session", session)
-	out, err := cmd.Output()
-	if err != nil {
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		stderrStr := strings.TrimSpace(stderr.String())
+		if stderrStr != "" {
+			return nil, fmt.Errorf("failed to list items in folder %q: %s", folder.Name, stderrStr)
+		}
 		return nil, fmt.Errorf("failed to list items in folder %q: %w", folder.Name, err)
+	}
+
+	out := bytes.TrimSpace(stdout.Bytes())
+
+	// Guard against empty output.
+	if len(out) == 0 {
+		return nil, fmt.Errorf(
+			"Bitwarden CLI returned empty output for folder %q.\n"+
+				"    Your session may have expired. Run 'bwenv logout' and then 'bwenv init' to re-authenticate",
+			folder.Name)
+	}
+
+	// Verify the output starts with '['.
+	if out[0] != '[' {
+		preview := string(out)
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return nil, fmt.Errorf(
+			"Bitwarden CLI returned unexpected output for folder %q (expected JSON array):\n    %s",
+			folder.Name, preview)
 	}
 
 	var items []bwItem
 	if err := json.Unmarshal(out, &items); err != nil {
-		return nil, fmt.Errorf("failed to parse items: %w", err)
+		return nil, fmt.Errorf("failed to parse items: %w\n    Raw output: %s", err, truncateOutput(out))
 	}
 
 	var secrets []Secret
@@ -168,6 +237,18 @@ func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) 
 	return secrets, nil
 }
 
+// Lock locks the Bitwarden vault, invalidating the current session.
+// This is used by the "bwenv logout" command.
+func (b *Bitwarden) Lock() error {
+	cmd := exec.Command("bw", "lock")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to lock Bitwarden vault: %w", err)
+	}
+	return nil
+}
+
 // runSilent executes a command discarding all output.
 // Returns any error from the command execution.
 func runSilent(name string, args ...string) error {
@@ -175,4 +256,14 @@ func runSilent(name string, args ...string) error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	return cmd.Run()
+}
+
+// truncateOutput returns a truncated string representation of raw bytes
+// for use in error messages. Limits output to 300 characters.
+func truncateOutput(data []byte) string {
+	s := string(data)
+	if len(s) > 300 {
+		return s[:300] + "..."
+	}
+	return s
 }

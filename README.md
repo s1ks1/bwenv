@@ -30,7 +30,10 @@ The original bwenv was built with Bash scripts, which worked — but had constan
 - **🎨 Beautiful TUI** — Interactive provider and folder selection with arrow keys, search, and filtering
 - **📁 Automatic `.envrc` generation** — Creates direnv-compatible files that auto-load your secrets
 - **🖥️ True cross-platform** — Single binary for Linux, macOS, and Windows (amd64 + arm64)
-- **🔍 Smart diagnostics** — `bwenv test` checks every dependency and shows a styled status report
+- **🔍 Smart diagnostics** — `bwenv status` checks every dependency, session, and config
+- **⚙️ Configurable UI** — Toggle emoji, direnv output, export summaries via `bwenv config`
+- **🔒 Secure logout** — Lock vaults and terminate sessions with `bwenv logout`
+- **📊 Quick status** — See active sessions, .envrc info, dependencies, and preferences with `bwenv status`
 - **⚡ Zero runtime dependencies** — Just the Go binary + your password manager CLI + direnv
 - **📦 Easy installation** — Homebrew, Scoop, `go install`, or direct download
 
@@ -85,8 +88,10 @@ Download the latest binary for your platform from the [Releases](https://github.
 ### Verify Installation
 
 ```bash
-bwenv test
+bwenv status
 ```
+
+> For detailed installation instructions on all platforms (macOS, Linux, Windows), including testing workflows for Bitwarden and 1Password, see [INSTALL.md](INSTALL.md).
 
 ---
 
@@ -108,7 +113,7 @@ This launches a full interactive TUI flow:
 Then just:
 
 ```bash
-direnv allow
+cd .    # Trigger direnv to load secrets
 ```
 
 Your secrets are now loaded as environment variables every time you `cd` into this directory! 🎉
@@ -128,20 +133,50 @@ eval "$(bwenv export --provider bitwarden --folder "MySecrets")"
 eval "$(bwenv export --provider 1password --folder "Production")"
 ```
 
-### 3. Check Dependencies
+### 3. Configure Preferences
 
 ```bash
-bwenv test
+bwenv config
 ```
 
-Prints a comprehensive diagnostic report showing:
-- System info (OS, architecture, shell)
-- Installed CLI tools and their versions
-- Provider authentication status
-- Direnv hook configuration
-- Environment variables
+Opens an interactive settings editor where you can toggle:
 
-### 4. Remove Secrets
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Show Emoji** | ON | Display emoji icons in output (turn off for cleaner text-only output) |
+| **Show Direnv Output** | OFF | Show/hide direnv's own loading/unloading messages |
+| **Show Export Summary** | ON | Show the boxed summary when secrets are loaded via direnv |
+| **Auto Sync** | ON | Automatically sync the vault before fetching secrets (Bitwarden) |
+
+Settings are persisted to `~/.config/bwenv/config.json`.
+
+### 4. Lock Vaults / Logout
+
+```bash
+bwenv logout
+```
+
+Terminates all active provider sessions for security:
+- **Bitwarden** — runs `bw lock` to lock the vault
+- **1Password** — runs `op signout` to end the session
+- Shows any lingering session environment variables and how to clear them
+
+Use this when you're done working with secrets or stepping away from your machine.
+
+### 5. Status & Diagnostics
+
+```bash
+bwenv status
+```
+
+Shows a comprehensive overview of your current bwenv state:
+- Current directory and `.envrc` info (provider, folder)
+- direnv installation and hook status
+- Provider availability and active sessions
+- Relevant environment variables (masked for security)
+- Current config preferences
+
+### 6. Remove Secrets
 
 ```bash
 bwenv remove
@@ -149,7 +184,7 @@ bwenv remove
 
 Deletes the `.envrc` file from the current directory.
 
-### 5. Version
+### 7. Version
 
 ```bash
 bwenv version
@@ -195,6 +230,7 @@ bwenv version
 ```
 bwenv/
 ├── main.go                          # Entry point and CLI routing
+├── INSTALL.md                       # Detailed install & testing guide
 ├── internal/
 │   ├── provider/
 │   │   ├── provider.go              # Provider interface and registry
@@ -205,11 +241,16 @@ bwenv/
 │   │   ├── output.go                # Styled print helpers (success, error, etc.)
 │   │   ├── provider_picker.go       # Bubble Tea model for provider selection
 │   │   ├── folder_picker.go         # Bubble Tea model for folder selection
-│   │   └── init_flow.go             # Orchestrates the full init TUI flow
+│   │   ├── init_flow.go             # Orchestrates the full init TUI flow
+│   │   ├── config_flow.go           # Interactive config editor TUI
+│   │   ├── logout_flow.go           # Vault locking and session termination
+│   │   └── status_flow.go           # Status overview & diagnostics (merged)
 │   ├── envrc/
-│   │   └── envrc.go                 # .envrc generation and secret export
+│   │   └── envrc.go                 # .envrc generation, export, allow/disallow
+│   ├── config/
+│   │   └── config.go                # Persistent user preferences (~/.config/bwenv/)
 │   └── check/
-│       └── check.go                 # Diagnostics for "bwenv test"
+│       └── check.go                 # Standalone diagnostics (library)
 ├── Makefile                         # Build, install, test, release targets
 ├── .goreleaser.yml                  # GoReleaser config for cross-platform releases
 ├── .github/workflows/release.yml    # GitHub Actions CI/CD
@@ -256,7 +297,7 @@ make release
 ### Adding a New Provider
 
 1. Create a new file in `internal/provider/` (e.g. `doppler.go`)
-2. Implement the `Provider` interface
+2. Implement the `Provider` interface (including the `Lock()` method)
 3. Call `Register(&YourProvider{})` in an `init()` function
 4. That's it — the provider will automatically appear in the TUI picker and CLI flags
 
@@ -300,6 +341,11 @@ If you're upgrading from the original Bash-based bwenv:
    direnv allow
    ```
 
+4. **Configure preferences (optional):**
+   ```bash
+   bwenv config  # Toggle emoji, direnv output, etc.
+   ```
+
 ### What changed?
 
 | | v1 (Bash) | v2 (Go) |
@@ -310,6 +356,9 @@ If you're upgrading from the original Bash-based bwenv:
 | UI | Basic terminal prompts | Beautiful TUI with Bubble Tea + Lipgloss |
 | Windows | `.bat` file with PowerShell fallbacks | Native `.exe` binary |
 | Helper scripts | `bitwarden_folders.sh` + `bwenv` bash script | None — everything is in the single binary |
+| Config | None | Persistent preferences via `bwenv config` |
+| Session management | Manual | `bwenv logout` to lock vaults |
+| Status overview | None | `bwenv status` for quick state check |
 
 ---
 

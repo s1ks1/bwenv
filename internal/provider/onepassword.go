@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // OnePassword implements the Provider interface using the 1Password CLI.
@@ -91,6 +92,13 @@ type opVault struct {
 	Name string `json:"name"`
 }
 
+func (v opVault) ToFolder() Folder {
+	return Folder{
+		ID:   v.ID,
+		Name: v.Name,
+	}
+}
+
 // ListFolders returns all vaults in the 1Password account.
 // In 1Password, "vaults" are the equivalent of Bitwarden's "folders".
 // The session parameter is unused for op v2 (auth is managed internally).
@@ -144,6 +152,9 @@ type opItemField struct {
 // Built-in fields with purpose "NOTES" or system-generated fields (like OTP)
 // are skipped unless they have a meaningful label. We focus on user-defined
 // fields (sections) and the standard username/password fields.
+//
+// Items are fetched concurrently (up to 5 at a time) to minimize latency
+// for vaults with many items.
 func (o *OnePassword) GetSecrets(session string, folder Folder) ([]Secret, error) {
 	// Step 1: List all items in the vault.
 	listCmd := exec.Command("op", "item", "list", "--vault", folder.ID, "--format=json")
@@ -157,50 +168,101 @@ func (o *OnePassword) GetSecrets(session string, folder Folder) ([]Secret, error
 		return nil, fmt.Errorf("failed to parse item list: %w", err)
 	}
 
-	// Step 2: Fetch full details for each item and extract fields.
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	// Step 2: Fetch full details for each item concurrently.
+	type itemResult struct {
+		index   int
+		secrets []Secret
+	}
+
+	const maxConcurrency = 5
+	sem := make(chan struct{}, maxConcurrency)
+	results := make([]itemResult, len(items))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var warnings []string
+
+	for i, item := range items {
+		wg.Add(1)
+		go func(idx int, it opItem) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
+
+			getCmd := exec.Command("op", "item", "get", it.ID, "--vault", folder.ID, "--format=json")
+			getOut, getErr := getCmd.Output()
+			if getErr != nil {
+				mu.Lock()
+				warnings = append(warnings, fmt.Sprintf("could not fetch item %q: %v", it.Title, getErr))
+				mu.Unlock()
+				return
+			}
+
+			var detail opItemDetail
+			if parseErr := json.Unmarshal(getOut, &detail); parseErr != nil {
+				mu.Lock()
+				warnings = append(warnings, fmt.Sprintf("could not parse item %q: %v", it.Title, parseErr))
+				mu.Unlock()
+				return
+			}
+
+			var itemSecrets []Secret
+			for _, field := range detail.Fields {
+				if field.Label == "" {
+					continue
+				}
+				if strings.EqualFold(field.Purpose, "NOTES") {
+					continue
+				}
+				if strings.EqualFold(field.Type, "OTP") {
+					continue
+				}
+				if field.Value == "" {
+					continue
+				}
+				itemSecrets = append(itemSecrets, Secret{
+					Key:   field.Label,
+					Value: field.Value,
+				})
+			}
+
+			results[idx] = itemResult{index: idx, secrets: itemSecrets}
+		}(i, item)
+	}
+
+	wg.Wait()
+
+	// Print any warnings to stderr.
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+
+	// Collect secrets in original item order for deterministic output.
 	var secrets []Secret
-	for _, item := range items {
-		getCmd := exec.Command("op", "item", "get", item.ID, "--vault", folder.ID, "--format=json")
-		getOut, err := getCmd.Output()
-		if err != nil {
-			// Log a warning but continue with other items.
-			fmt.Fprintf(os.Stderr, "warning: could not fetch item %q: %v\n", item.Title, err)
-			continue
-		}
-
-		var detail opItemDetail
-		if err := json.Unmarshal(getOut, &detail); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not parse item %q: %v\n", item.Title, err)
-			continue
-		}
-
-		for _, field := range detail.Fields {
-			// Skip fields without a label — they can't be mapped to env var names.
-			if field.Label == "" {
-				continue
-			}
-
-			// Skip the "notes" purpose field (typically large text, not a secret).
-			if strings.EqualFold(field.Purpose, "NOTES") {
-				continue
-			}
-
-			// Skip OTP fields — they are time-based and not useful as static env vars.
-			if strings.EqualFold(field.Type, "OTP") {
-				continue
-			}
-
-			// Skip fields with empty values.
-			if field.Value == "" {
-				continue
-			}
-
-			secrets = append(secrets, Secret{
-				Key:   field.Label,
-				Value: field.Value,
-			})
-		}
+	for _, r := range results {
+		secrets = append(secrets, r.secrets...)
 	}
 
 	return secrets, nil
+}
+
+// Lock signs out of the 1Password CLI session.
+// For op CLI v2+, this runs "op signout" to terminate the current session.
+// Returns nil if the sign-out succeeds or if there is no active session.
+func (o *OnePassword) Lock() error {
+	// If not authenticated, there's nothing to sign out of.
+	if !o.IsAuthenticated() {
+		return nil
+	}
+
+	cmd := exec.Command("op", "signout")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to sign out of 1Password: %w", err)
+	}
+	return nil
 }

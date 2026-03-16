@@ -14,7 +14,17 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/internal/config"
 )
+
+// E returns the emoji string if ShowEmoji is enabled in the user config,
+// otherwise returns the plain-text fallback. This is the single point of
+// control for all emoji display throughout the application.
+//
+// Usage: E("🔐", "[lock]") → "🔐" or "[lock]" depending on config.
+func E(emoji string, fallback string) string {
+	return config.Emoji(emoji, fallback)
+}
 
 // ── Banner ─────────────────────────────────────────────────────────────────
 
@@ -25,7 +35,7 @@ func PrintBanner(version string) {
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
-		Render("🔐 bwenv")
+		Render(E("🔐", "[*]") + " bwenv")
 
 	// Strip any existing "v" prefix to avoid "vv2.0.0" when version is already "v2.0.0".
 	cleanVersion := strings.TrimPrefix(version, "v")
@@ -56,7 +66,7 @@ func PrintSuccess(message string) {
 // PrintError prints an error message with a red cross prefix and detail line.
 // The label provides context about what failed, and err gives the details.
 func PrintError(label string, err error) {
-	header := ErrorText.Render("✗ " + label)
+	header := ErrorText.Render(E("✗", "X") + " " + label)
 	detail := lipgloss.NewStyle().Foreground(ColorMuted).Render(err.Error())
 	fmt.Fprintf(os.Stderr, "\n  %s\n    %s\n\n", header, detail)
 }
@@ -193,4 +203,29 @@ func FormatProviderTag(slug string) string {
 		Foreground(ColorSecondary).
 		Bold(true).
 		Render("[" + slug + "]")
+}
+
+// ShortenHomePath replaces the user's home directory prefix with "~"
+// for more compact and readable display in status messages.
+// This is the single shared implementation — use this instead of local copies.
+func ShortenHomePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+// OnOff returns a styled "ON" or "OFF" string for boolean config values.
+func OnOff(val bool) string {
+	if val {
+		return lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true).Render("ON")
+	}
+	return lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render("OFF")
 }

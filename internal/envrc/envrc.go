@@ -19,6 +19,7 @@ package envrc
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,8 +28,17 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/internal/config"
 	"github.com/s1ks1/bwenv/internal/provider"
 )
+
+// emojiStr returns the emoji if ShowEmoji is enabled in the user config,
+// otherwise returns the plain-text fallback. Convenience wrapper for use
+// within the envrc package so we don't import the ui package (which would
+// create a circular dependency).
+func emojiStr(emoji string, fallback string) string {
+	return config.Emoji(emoji, fallback)
+}
 
 // ── Styles for the export summary box (printed to stderr on every direnv load) ──
 
@@ -117,6 +127,9 @@ type Config struct {
 //   - BW_SESSION is stored for Bitwarden users (the token expires, so the
 //     user will need to re-run "bwenv init" when it does).
 func Generate(cfg Config) error {
+	// Load user preferences to decide whether to silence direnv output.
+	userCfg, _ := config.Load()
+
 	var b strings.Builder
 
 	// -- Header with metadata --
@@ -129,16 +142,21 @@ func Generate(cfg Config) error {
 	b.WriteString("# ═══════════════════════════════════════════════════════════════\n")
 	b.WriteString("\n")
 
-	// -- Silence direnv's log output --
+	// -- Silence direnv's log output (unless user opted to see it) --
 	// Setting DIRENV_LOG_FORMAT="" suppresses direnv messages like:
 	//   - "direnv: export +VAR1 +VAR2..."
 	//   - "direnv: unloading"
 	// The "direnv: loading .envrc" message is printed BEFORE the .envrc runs,
 	// so it can only be silenced by having this variable already in the shell
 	// environment. bwenv init handles that via SilenceDirenvGlobally().
-	b.WriteString("# Silence direnv's own output — bwenv handles all user feedback\n")
-	b.WriteString("export DIRENV_LOG_FORMAT=\"\"\n")
-	b.WriteString("\n")
+	if !userCfg.ShowDirenvOutput {
+		b.WriteString("# Replace direnv's noisy output with a subtle, styled message\n")
+		b.WriteString("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %s\\033[0m'\n")
+		b.WriteString("\n")
+	} else {
+		b.WriteString("# Direnv output is visible (configured via 'bwenv config')\n")
+		b.WriteString("\n")
+	}
 
 	// -- Set a generous timeout --
 	// Vault operations (unlock, fetch secrets) can take several seconds.
@@ -192,13 +210,280 @@ func AllowDirenv() error {
 	}
 
 	cmd := exec.Command("direnv", "allow")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard // Suppress "direnv:" messages
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("'direnv allow' failed: %w", err)
 	}
 
 	return nil
+}
+
+// AllowAndExport is the handler for `eval "$(bwenv allow)"`. It:
+//  1. Parses .envrc to get provider/folder info.
+//  2. Authenticates (may prompt for password ONCE).
+//  3. Fetches secrets and prints export lines to stdout.
+//  4. Also exports BW_SESSION (if applicable) and DIRENV_LOG_FORMAT=""
+//     so that when direnv's hook re-fires after eval completes, the
+//     subshell inherits a valid session and stays silent — no second
+//     password prompt.
+//  5. Runs "direnv allow" LAST so the hook fires only after the shell
+//     already has all the right env vars.
+func AllowAndExport() (providerSlug string, folderName string, err error) {
+	// Step 1: Parse .envrc to get provider/folder info.
+	providerSlug, folderName, err = ParseEnvrcConfig()
+	if err != nil {
+		return "", "", fmt.Errorf("could not parse .envrc: %w", err)
+	}
+
+	// Step 2: Authenticate and export secrets. This is the one-and-only
+	// place the user may be prompted for their master password.
+	session, exportErr := ExportInteractive(providerSlug, folderName)
+	if exportErr != nil {
+		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
+	}
+
+	// Step 3: Output the fresh session token so the parent shell has it.
+	// When direnv's hook re-fires .envrc, the subshell will inherit this
+	// fresh BW_SESSION from the parent environment, overriding the
+	// potentially stale one in .envrc. No second password prompt.
+	if session != "" {
+		fmt.Printf("export BW_SESSION=%s\n", shellQuote(session))
+	}
+
+	// Step 4: Ensure DIRENV_LOG_FORMAT is set in the parent shell so the
+	// hook re-fire uses our styled format instead of the ugly default.
+	fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
+	fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+
+	// Step 5: Run direnv allow LAST. The shell now has fresh BW_SESSION
+	// and DIRENV_LOG_FORMAT, so when the hook fires the re-load is both
+	// silent and auth-free.
+	if allowErr := AllowDirenv(); allowErr != nil {
+		// Non-fatal — direnv may not be installed.
+		_ = allowErr
+	}
+
+	return providerSlug, folderName, nil
+}
+
+// ParseEnvrcConfig reads the .envrc in the current directory and extracts
+// the provider slug and folder name. Returns an error if the file doesn't
+// exist or doesn't appear to be generated by bwenv.
+func ParseEnvrcConfig() (providerSlug string, folderName string, err error) {
+	content, err := os.ReadFile(".envrc")
+	if err != nil {
+		return "", "", fmt.Errorf("no .envrc found in current directory")
+	}
+
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, "bwenv") {
+		return "", "", fmt.Errorf(".envrc was not generated by bwenv")
+	}
+
+	// Try to extract from the header comment first:
+	// Format: "# Provider: bitwarden | Folder: MySecrets"
+	for _, line := range strings.Split(contentStr, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# Provider:") {
+			parts := strings.SplitN(line, "|", 2)
+			if len(parts) >= 1 {
+				provPart := strings.TrimPrefix(parts[0], "# Provider:")
+				providerSlug = strings.TrimSpace(provPart)
+			}
+			if len(parts) >= 2 {
+				folderPart := strings.TrimPrefix(parts[1], " Folder:")
+				folderName = strings.TrimSpace(folderPart)
+			}
+			break
+		}
+	}
+
+	// Fallback: extract from the bwenv export command line.
+	if providerSlug == "" || folderName == "" {
+		for _, line := range strings.Split(contentStr, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "bwenv export") {
+				if idx := strings.Index(line, "--provider"); idx >= 0 {
+					rest := line[idx+len("--provider"):]
+					rest = strings.TrimSpace(rest)
+					fields := strings.Fields(rest)
+					if len(fields) > 0 {
+						providerSlug = fields[0]
+					}
+				}
+				if idx := strings.Index(line, "--folder"); idx >= 0 {
+					rest := line[idx+len("--folder"):]
+					rest = strings.TrimSpace(rest)
+					// Folder may be quoted.
+					if len(rest) > 0 && (rest[0] == '\'' || rest[0] == '"') {
+						quote := rest[0]
+						end := strings.IndexByte(rest[1:], quote)
+						if end >= 0 {
+							folderName = rest[1 : end+1]
+						}
+					} else {
+						fields := strings.Fields(rest)
+						if len(fields) > 0 {
+							folderName = strings.TrimSuffix(fields[0], ")")
+							folderName = strings.Trim(folderName, "'\"")
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if providerSlug == "" || folderName == "" {
+		return providerSlug, folderName, fmt.Errorf("could not extract provider and folder from .envrc")
+	}
+
+	return providerSlug, folderName, nil
+}
+
+// DisallowDirenv runs "direnv deny" in the current directory to block
+// the .envrc file from being loaded. This is the inverse of AllowDirenv.
+func DisallowDirenv() error {
+	// Check if direnv is available before trying to call it.
+	if _, err := exec.LookPath("direnv"); err != nil {
+		return fmt.Errorf("direnv not found in PATH")
+	}
+
+	cmd := exec.Command("direnv", "deny")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard // Suppress "direnv:" messages
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("'direnv deny' failed: %w", err)
+	}
+
+	return nil
+}
+
+// DisallowAndUnset blocks the .envrc via direnv deny AND prints "unset VAR"
+// statements to stdout for every variable that bwenv exported.
+// Uses the .bwenv_vars cache to know which secret variables to unset.
+// DIRENV_LOG_FORMAT and DIRENV_WARN_TIMEOUT are intentionally NOT unset
+// so direnv stays quiet.
+func DisallowAndUnset() ([]string, error) {
+	varNames := loadCachedVarNames()
+
+	if err := DisallowDirenv(); err != nil {
+		return varNames, err
+	}
+
+	// Print unset statements to stdout (captured by shell wrapper's eval).
+	for _, name := range varNames {
+		fmt.Printf("unset %s\n", name)
+	}
+
+	return varNames, nil
+}
+
+// RemoveAndUnset removes .envrc and .bwenv_vars, calls direnv deny,
+// AND prints "unset VAR" statements to stdout.
+func RemoveAndUnset() (bool, []string, error) {
+	// Load cached variable names BEFORE deleting any files.
+	varNames := loadCachedVarNames()
+
+	removed, _, err := Remove()
+	if err != nil {
+		return removed, varNames, err
+	}
+	if !removed {
+		return false, nil, nil
+	}
+
+	// Print unset statements to stdout (captured by shell wrapper's eval).
+	for _, name := range varNames {
+		fmt.Printf("unset %s\n", name)
+	}
+
+	return true, varNames, nil
+}
+
+// ── Variable name cache ─────────────────────────────────────────────────────
+
+// bwenvVarsCacheFile is the file where bwenv export saves the variable names
+// it exported. This allows disallow/remove to know which vars to unset without
+// re-authenticating with the provider.
+const bwenvVarsCacheFile = ".bwenv_vars"
+
+// saveVarNamesCache writes the exported variable names to .bwenv_vars.
+// Called by exportSecrets() after every successful export.
+func saveVarNamesCache(varNames []string) {
+	if len(varNames) == 0 {
+		return
+	}
+	_ = os.WriteFile(bwenvVarsCacheFile, []byte(strings.Join(varNames, "\n")+"\n"), 0600)
+}
+
+// loadCachedVarNames reads variable names from .bwenv_vars (written by export).
+// Falls back to parsing .envrc static exports if the cache doesn't exist.
+func loadCachedVarNames() []string {
+	// Primary: read from cache file (has the actual secret var names).
+	if content, err := os.ReadFile(bwenvVarsCacheFile); err == nil {
+		var names []string
+		for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+			if line != "" {
+				names = append(names, line)
+			}
+		}
+		if len(names) > 0 {
+			// Also add BW_SESSION to unset so stale tokens don't linger.
+			names = append(names, "BW_SESSION")
+			return names
+		}
+	}
+
+	// Fallback: parse static exports from .envrc.
+	return parseEnvrcVarNames()
+}
+
+// removeCachedVarNames deletes the .bwenv_vars cache file.
+func removeCachedVarNames() {
+	_ = os.Remove(bwenvVarsCacheFile)
+}
+
+// parseEnvrcVarNames reads the .envrc and extracts variable names from
+// "export KEY=..." lines. Variables managed by direnv internally
+// (DIRENV_LOG_FORMAT, DIRENV_WARN_TIMEOUT) are excluded because we
+// want those to stay set so direnv remains silent.
+func parseEnvrcVarNames() []string {
+	content, err := os.ReadFile(".envrc")
+	if err != nil {
+		return nil
+	}
+
+	// These are direnv control variables — never unset them.
+	skip := map[string]bool{
+		"DIRENV_LOG_FORMAT":   true,
+		"DIRENV_WARN_TIMEOUT": true,
+	}
+
+	var names []string
+	seen := make(map[string]bool)
+
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "export ") {
+			rest := strings.TrimPrefix(line, "export ")
+			if idx := strings.Index(rest, "="); idx > 0 {
+				key := rest[:idx]
+				if !seen[key] && !skip[key] {
+					seen[key] = true
+					names = append(names, key)
+				}
+			}
+		}
+	}
+
+	return names
 }
 
 // SilenceDirenvGlobally adds `export DIRENV_LOG_FORMAT=""` to the user's
@@ -216,9 +501,13 @@ func AllowDirenv() error {
 //   - modified=false, filePath="~/.zshrc" → already present in ~/.zshrc
 //   - modified=false, filePath="", err → could not determine shell RC
 func SilenceDirenvGlobally() (modified bool, filePath string, err error) {
-	// The magic line we need in the shell RC.
-	const silenceLine = `export DIRENV_LOG_FORMAT=""`
-	const marker = "DIRENV_LOG_FORMAT"
+	// The styled format replaces direnv's default "direnv: ..." messages with
+	// a dimmed, bwenv-branded line: "  \U0001f510 loading .envrc" (dimmed).
+	// Using $'...' syntax for ANSI escape and unicode support.
+	const silenceLine = `export DIRENV_LOG_FORMAT=$'\033[2m  \U0001f510 %s\033[0m'`
+	const timeoutLine = `export DIRENV_WARN_TIMEOUT="10m"`
+	const markerLog = "DIRENV_LOG_FORMAT"
+	const markerTimeout = "DIRENV_WARN_TIMEOUT"
 
 	// Determine which shell RC file to modify.
 	rcPath, err := detectShellRC()
@@ -235,14 +524,26 @@ func SilenceDirenvGlobally() (modified bool, filePath string, err error) {
 		return false, displayPath, fmt.Errorf("could not read %s: %w", displayPath, err)
 	}
 
-	// Check if the marker is already present.
-	if strings.Contains(string(content), marker) {
+	contentStr := string(content)
+	hasLog := strings.Contains(contentStr, markerLog)
+	hasTimeout := strings.Contains(contentStr, markerTimeout)
+
+	// If both markers are already present, nothing to do.
+	if hasLog && hasTimeout {
 		return false, displayPath, nil
 	}
 
-	// Append the silence line with a comment explaining why it's there.
-	appendContent := "\n# Silence direnv messages — bwenv provides its own styled output\n"
-	appendContent += silenceLine + "\n"
+	// Build the content to append — only add lines that are missing.
+	var appendContent string
+	if !hasLog || !hasTimeout {
+		appendContent += "\n# Silence direnv messages — bwenv provides its own styled output\n"
+	}
+	if !hasLog {
+		appendContent += silenceLine + "\n"
+	}
+	if !hasTimeout {
+		appendContent += timeoutLine + "\n"
+	}
 
 	f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -251,6 +552,102 @@ func SilenceDirenvGlobally() (modified bool, filePath string, err error) {
 	defer f.Close()
 
 	if _, err := f.WriteString(appendContent); err != nil {
+		return false, displayPath, fmt.Errorf("failed to append to %s: %w", displayPath, err)
+	}
+
+	return true, displayPath, nil
+}
+
+// ── Shell wrapper ───────────────────────────────────────────────────────────
+
+// shellWrapperMarker is the unique string we look for to detect if the
+// bwenv shell wrapper function is already installed.
+const shellWrapperMarker = "# bwenv shell integration"
+
+// shellWrapperBashZsh is the shell function for bash/zsh that wraps bwenv
+// commands. Commands that produce shell code (export/unset) are eval'd
+// transparently, so "bwenv allow" / "bwenv disallow" / "bwenv remove"
+// can modify the current shell's environment directly.
+const shellWrapperBashZsh = `
+# bwenv shell integration — enables seamless secret management
+# Commands like allow/disallow/remove modify your shell environment directly.
+bwenv() {
+  case "${1:-}" in
+    allow|disallow|deny|remove|clean|export|load)
+      local _bwenv_out
+      _bwenv_out="$(command bwenv "$@")"
+      local _bwenv_rc=$?
+      [ $_bwenv_rc -eq 0 ] && [ -n "$_bwenv_out" ] && eval "$_bwenv_out"
+      return $_bwenv_rc
+      ;;
+    *)
+      command bwenv "$@"
+      ;;
+  esac
+}
+`
+
+// shellWrapperFish is the shell function for fish shell.
+const shellWrapperFish = `
+# bwenv shell integration — enables seamless secret management
+function bwenv
+  switch $argv[1]
+    case allow disallow deny remove clean export load
+      set -l _out (command bwenv $argv)
+      set -l _rc $status
+      if test $_rc -eq 0 -a -n "$_out"
+        eval $_out
+      end
+      return $_rc
+    case '*'
+      command bwenv $argv
+  end
+end
+`
+
+// InstallShellWrapper adds the bwenv() shell wrapper function to the user's
+// shell RC file. This wrapper transparently eval's the output of commands
+// like "bwenv allow", "bwenv disallow", and "bwenv remove" so they can
+// modify the current shell's environment (set/unset variables) directly.
+//
+// Without the wrapper, these commands would require the user to manually
+// type eval "$(bwenv allow)" etc.
+//
+// Returns (modified bool, filePath string, err error):
+//   - modified=true  → wrapper was added to the RC file
+//   - modified=false → wrapper already present or error occurred
+func InstallShellWrapper() (modified bool, filePath string, err error) {
+	rcPath, err := detectShellRC()
+	if err != nil {
+		return false, "", err
+	}
+
+	displayPath := shortenHomePath(rcPath)
+
+	// Read the existing file to check if wrapper is already installed.
+	content, err := os.ReadFile(rcPath)
+	if err != nil && !os.IsNotExist(err) {
+		return false, displayPath, fmt.Errorf("could not read %s: %w", displayPath, err)
+	}
+
+	if strings.Contains(string(content), shellWrapperMarker) {
+		return false, displayPath, nil
+	}
+
+	// Determine which wrapper to install based on the shell.
+	shellName := filepath.Base(os.Getenv("SHELL"))
+	wrapper := shellWrapperBashZsh
+	if shellName == "fish" {
+		wrapper = shellWrapperFish
+	}
+
+	f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return false, displayPath, fmt.Errorf("could not write to %s: %w", displayPath, err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(wrapper); err != nil {
 		return false, displayPath, fmt.Errorf("failed to append to %s: %w", displayPath, err)
 	}
 
@@ -292,12 +689,15 @@ func detectShellRC() (string, error) {
 	}
 }
 
-// shortenHomePath replaces the user's home directory prefix with "~"
-// for more compact and readable display in status messages.
+// shortenHomePath uses the shared ui helper (kept as a local alias
+// to avoid importing the ui package which would create circular deps).
 func shortenHomePath(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return path
+	}
+	if path == home {
+		return "~"
 	}
 	if strings.HasPrefix(path, home) {
 		return "~" + path[len(home):]
@@ -311,40 +711,74 @@ func shortenHomePath(path string) string {
 // "export KEY=VALUE" lines to stdout. It also prints a rich, boxed summary
 // to stderr showing which variables were loaded.
 //
-// This function is designed to be called from within an .envrc file via eval:
-//
-//	eval "$(bwenv export --provider bitwarden --folder MyFolder)"
+// This function is called by direnv inside .envrc via eval. It NEVER prompts
+// for a password interactively — the session must already be available via
+// BW_SESSION env var (set by the .envrc itself or inherited from the parent
+// shell). If the session is invalid, it fails with a clear error message
+// telling the user to re-run "bwenv init".
 //
 // stdout: only "export KEY=VALUE" lines (consumed by eval)
 // stderr: styled box summary for the user (visible in the terminal)
 func Export(providerSlug string, folderName string) error {
+	_, err := exportSecrets(providerSlug, folderName, false)
+	return err
+}
+
+// ExportInteractive is like Export but allows interactive authentication
+// (prompting for a master password). This is used by "bwenv allow" where
+// the user explicitly runs bwenv and expects to enter their password once.
+// Returns the session token so the caller can propagate it.
+func ExportInteractive(providerSlug string, folderName string) (string, error) {
+	return exportSecrets(providerSlug, folderName, true)
+}
+
+// exportSecrets is the shared implementation for Export and ExportInteractive.
+// When interactive=false (direnv context), authentication failures produce a
+// helpful error instead of blocking on a password prompt.
+func exportSecrets(providerSlug string, folderName string, interactive bool) (string, error) {
+	// Load user preferences to decide whether to show the export summary.
+	userCfg, _ := config.Load()
+
 	// Look up the requested provider from the registry.
 	p, err := provider.Get(providerSlug)
 	if err != nil {
 		printExportError("Provider not found", err)
-		return err
+		return "", err
 	}
 
 	// Check that the provider's CLI tool is available on this system.
 	if !p.IsAvailable() {
 		err := fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
 		printExportError(fmt.Sprintf("%s unavailable", p.Name()), err)
-		return err
+		return "", err
 	}
 
-	// Authenticate with the provider. For Bitwarden, this uses BW_SESSION
-	// from the environment. For 1Password, this triggers system auth.
-	session, err := p.Authenticate()
+	// Authenticate with the provider.
+	var session string
+	if interactive {
+		// Interactive mode (bwenv allow): may prompt for master password.
+		session, err = p.Authenticate()
+	} else {
+		// Non-interactive mode (direnv .envrc): use existing session only.
+		if !p.IsAuthenticated() {
+			err = fmt.Errorf(
+				"session expired or not active — run 'bwenv init' to re-authenticate")
+			printExportError("Authentication required", err)
+			return "", err
+		}
+		// Session is valid — get it from the provider.
+		session, err = p.Authenticate()
+	}
 	if err != nil {
 		printExportError("Authentication failed", err)
-		return fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
+		return "", fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
 	}
 
 	// Fetch the list of folders so we can find the one matching the given name.
 	folders, err := p.ListFolders(session)
 	if err != nil {
 		printExportError("Could not list folders", err)
-		return fmt.Errorf("failed to list folders from %s: %w", p.Name(), err)
+		return session, fmt.Errorf("failed to list folders from %s: %w", p.Name(), err)
 	}
 
 	// Find the folder by name (case-sensitive match).
@@ -365,14 +799,14 @@ func Export(providerSlug string, folderName string) error {
 		err := fmt.Errorf("folder %q not found — available: %s",
 			folderName, strings.Join(available, ", "))
 		printExportError("Folder not found", err)
-		return err
+		return session, err
 	}
 
 	// Fetch all secrets from the folder.
 	secrets, err := p.GetSecrets(session, *targetFolder)
 	if err != nil {
 		printExportError("Could not fetch secrets", err)
-		return fmt.Errorf("failed to get secrets from folder %q: %w", folderName, err)
+		return session, fmt.Errorf("failed to get secrets from folder %q: %w", folderName, err)
 	}
 
 	// Collect variable names for the summary (before printing export lines).
@@ -386,11 +820,18 @@ func Export(providerSlug string, folderName string) error {
 		varNames = append(varNames, key)
 	}
 
+	// Cache variable names so disallow/remove can unset them later
+	// without needing to re-authenticate with the provider.
+	saveVarNamesCache(varNames)
+
 	// Print a rich, boxed summary to stderr so the user sees what happened.
 	// This goes to stderr to avoid polluting the eval'd stdout.
-	printExportSummary(p.Name(), folderName, varNames)
+	// Controlled by the ShowExportSummary config preference.
+	if userCfg.ShowExportSummary {
+		printExportSummary(p.Name(), folderName, varNames)
+	}
 
-	return nil
+	return session, nil
 }
 
 // ── Secret preview ──────────────────────────────────────────────────────────
@@ -414,22 +855,40 @@ func PreviewSecrets(p provider.Provider, session string, folder provider.Folder)
 // ── Remove ──────────────────────────────────────────────────────────────────
 
 // Remove deletes the .envrc file in the current directory.
-// Returns (true, nil) if the file was removed, (false, nil) if it didn't exist,
-// or (false, error) if deletion failed.
-func Remove() (bool, error) {
+// Before deleting, it calls "direnv deny" so the direnv cache is invalidated
+// and extracts the variable names that were exported for the caller to
+// display unset hints.
+// Returns (removed bool, varNames []string, err error).
+func Remove() (bool, []string, error) {
 	_, err := os.Stat(".envrc")
 	if os.IsNotExist(err) {
-		return false, nil
+		return false, nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("could not check .envrc: %w", err)
+		return false, nil, fmt.Errorf("could not check .envrc: %w", err)
+	}
+
+	// Capture variable names before we delete the file.
+	varNames := loadCachedVarNames()
+
+	// Deny direnv so the cached allowance is revoked.
+	// Non-fatal: direnv may not be installed when just cleaning up.
+	if denyErr := DisallowDirenv(); denyErr != nil {
+		// If direnv isn't installed, that's fine — just skip.
+		if _, lookErr := exec.LookPath("direnv"); lookErr == nil {
+			// direnv IS installed but deny failed — still not fatal.
+			_ = denyErr
+		}
 	}
 
 	if err := os.Remove(".envrc"); err != nil {
-		return false, fmt.Errorf("failed to remove .envrc: %w", err)
+		return false, varNames, fmt.Errorf("failed to remove .envrc: %w", err)
 	}
 
-	return true, nil
+	// Also clean up the variable name cache.
+	removeCachedVarNames()
+
+	return true, varNames, nil
 }
 
 // ── Export summary output (printed to stderr) ──────────────────────────────
@@ -465,11 +924,11 @@ func printExportSummary(providerName string, folderName string, varNames []strin
 
 	if len(varNames) == 0 {
 		// No variables found — show a warning.
-		warningLine := summaryError.Render("⚠  No variables found in this folder")
+		warningLine := summaryError.Render(emojiStr("⚠ ", "!") + " No variables found in this folder")
 		lines = append(lines, warningLine)
 	} else {
 		// Success line with count.
-		countLine := summarySuccess.Render(fmt.Sprintf("✓ %d variable(s) loaded", len(varNames)))
+		countLine := summarySuccess.Render(fmt.Sprintf("%s %d variable(s) loaded", emojiStr("✓", "[OK]"), len(varNames)))
 		lines = append(lines, countLine)
 
 		// List each variable name with a key icon.
@@ -483,7 +942,7 @@ func printExportSummary(providerName string, folderName string, varNames []strin
 		}
 
 		for _, name := range shown {
-			varLine := fmt.Sprintf("  🔑 %s", summaryVarName.Render(name))
+			varLine := fmt.Sprintf("  %s %s", emojiStr("🔑", " *"), summaryVarName.Render(name))
 			lines = append(lines, varLine)
 		}
 
@@ -499,7 +958,7 @@ func printExportSummary(providerName string, folderName string, varNames []strin
 	box := summaryBox.Render(content)
 
 	// Print a header line above the box with the bwenv branding.
-	brand := summaryBrand.Render("🔐 bwenv")
+	brand := summaryBrand.Render(emojiStr("🔐", "[*]") + " bwenv")
 	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
 }
 
@@ -509,7 +968,7 @@ func printExportSummary(providerName string, folderName string, varNames []strin
 func printExportError(label string, err error) {
 	var lines []string
 
-	errorLabel := summaryError.Render("✗ " + label)
+	errorLabel := summaryError.Render(emojiStr("✗", "X") + " " + label)
 	lines = append(lines, errorLabel)
 	lines = append(lines, "")
 
@@ -520,7 +979,7 @@ func printExportError(label string, err error) {
 	content := strings.Join(lines, "\n")
 	box := summaryBoxError.Render(content)
 
-	brand := summaryBrand.Render("🔐 bwenv")
+	brand := summaryBrand.Render(emojiStr("🔐", "[*]") + " bwenv")
 	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
 }
 

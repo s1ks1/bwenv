@@ -7,7 +7,8 @@
 //   - Previews which variables will be loaded (showing names, not values)
 //   - Automatically runs "direnv allow" so the user doesn't see the scary
 //     "direnv: error .envrc is blocked" message
-//   - Shows a beautiful final summary with emojis
+//   - Shows a beautiful final summary with emojis (configurable)
+//   - Respects user config for direnv output silencing
 package ui
 
 import (
@@ -19,6 +20,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/internal/config"
 	"github.com/s1ks1/bwenv/internal/envrc"
 	"github.com/s1ks1/bwenv/internal/provider"
 )
@@ -60,11 +62,11 @@ func RunInitFlow(version string) error {
 
 	if len(available) == 1 {
 		chosenProvider = available[0]
-		PrintStep(1, totalSteps, fmt.Sprintf("🔑 Using %s (only available provider)", formatProviderName(chosenProvider.Name())))
+		PrintStep(1, totalSteps, fmt.Sprintf("%s Using %s (only available provider)", E("🔑", "[>]"), formatProviderName(chosenProvider.Name())))
 		fmt.Println()
 	} else {
 		// Launch the interactive provider picker TUI.
-		PrintStep(1, totalSteps, "🔑 Select a secret provider")
+		PrintStep(1, totalSteps, E("🔑", "[>]")+" Select a secret provider")
 		fmt.Println()
 
 		pickerModel := NewProviderPicker(allProviders)
@@ -91,7 +93,7 @@ func RunInitFlow(version string) error {
 	}
 
 	// -- Step 3: Authenticate with the provider --
-	PrintStep(2, totalSteps, "🔓 Authenticating with "+chosenProvider.Name()+"...")
+	PrintStep(2, totalSteps, E("🔓", "[>]")+" Authenticating with "+chosenProvider.Name()+"...")
 	fmt.Println()
 
 	session, err := chosenProvider.Authenticate()
@@ -99,11 +101,11 @@ func RunInitFlow(version string) error {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
-	PrintSuccess("Vault unlocked")
+	PrintSuccess(E("🔓", "->") + " Vault unlocked")
 	fmt.Println()
 
 	// -- Step 4: Fetch the folder list --
-	PrintStep(3, totalSteps, "📂 Fetching folders from "+chosenProvider.Name()+"...")
+	PrintStep(3, totalSteps, E("📂", "[>]")+" Fetching folders from "+chosenProvider.Name()+"...")
 
 	folders, err := chosenProvider.ListFolders(session)
 	if err != nil {
@@ -118,7 +120,7 @@ func RunInitFlow(version string) error {
 	fmt.Println()
 
 	// -- Step 5: Folder selection via interactive TUI --
-	PrintStep(4, totalSteps, "📁 Pick a folder to load secrets from")
+	PrintStep(4, totalSteps, E("📁", "[>]")+" Pick a folder to load secrets from")
 	fmt.Println()
 
 	folderModel := NewFolderPicker(folders, chosenProvider.Name())
@@ -145,7 +147,7 @@ func RunInitFlow(version string) error {
 	fmt.Println()
 
 	// -- Step 6: Preview secrets (show variable names, not values) --
-	PrintStep(5, totalSteps, "🔍 Scanning secrets in folder...")
+	PrintStep(5, totalSteps, E("🔍", "[>]")+" Scanning secrets in folder...")
 
 	varNames, err := envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
 	if err != nil {
@@ -164,7 +166,7 @@ func RunInitFlow(version string) error {
 	}
 
 	// -- Step 7: Generate the .envrc file --
-	PrintStep(6, totalSteps, "📝 Generating .envrc...")
+	PrintStep(6, totalSteps, E("📝", "[>]")+" Generating .envrc...")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -192,33 +194,51 @@ func RunInitFlow(version string) error {
 
 	PrintSuccess(".envrc created")
 
-	// -- Step 8: Auto-run "direnv allow" --
-	// This prevents the scary "direnv: error .envrc is blocked" message.
-	direnvAllowed := false
+	// -- Step 8: Allow direnv so secrets load automatically --
+	// Now that DIRENV_LOG_FORMAT="" is set globally (step 9 below) or was
+	// already set from a previous init, we can safely allow the .envrc.
+	// When the user's prompt returns, direnv's hook will silently load it.
 	if err := envrc.AllowDirenv(); err != nil {
-		// Non-fatal — just tell the user to do it manually.
-		PrintInfo("Run 'direnv allow' to approve the .envrc file")
-	} else {
-		direnvAllowed = true
-		PrintSuccess("direnv allow — approved automatically")
+		// Non-fatal — direnv might not be installed.
+		_ = err
 	}
 
-	// -- Step 9: Silence direnv globally --
-	// Add DIRENV_LOG_FORMAT="" to the user's shell RC so that ALL direnv
-	// messages are suppressed — including "direnv: loading .envrc" which
-	// is printed BEFORE the .envrc runs and can't be silenced from within it.
-	modified, rcFile, silenceErr := envrc.SilenceDirenvGlobally()
-	if silenceErr != nil {
-		// Non-fatal — the .envrc still works, just with some direnv noise on first load.
-		PrintInfo("Could not configure global direnv silence: " + silenceErr.Error())
-	} else if modified {
-		PrintSuccess(fmt.Sprintf("Silenced direnv output in %s", rcFile))
+	// -- Step 9: Shell integration --
+	// Install DIRENV_LOG_FORMAT="" (silence direnv) and the bwenv() shell
+	// wrapper function into the user's shell RC file. The wrapper enables
+	// commands like "bwenv allow", "bwenv disallow", "bwenv remove" to
+	// modify the current shell's environment directly.
+	userCfg, _ := config.Load()
+	rcFile := ""
+	rcModified := false
+
+	// 9a: Silence direnv globally (unless user wants direnv output).
+	if !userCfg.ShowDirenvOutput {
+		silenceModified, silenceRC, silenceErr := envrc.SilenceDirenvGlobally()
+		if silenceErr != nil {
+			PrintInfo("Could not configure global direnv silence: " + silenceErr.Error())
+		} else if silenceModified {
+			PrintSuccess(fmt.Sprintf("Silenced direnv output in %s", silenceRC))
+			rcFile = silenceRC
+			rcModified = true
+		}
+	} else {
+		PrintInfo("Direnv output is visible (configured via 'bwenv config')")
 	}
-	// If !modified && silenceErr == nil, the line was already present — nothing to report.
+
+	// 9b: Install the bwenv shell wrapper function.
+	wrapperModified, wrapperRC, wrapperErr := envrc.InstallShellWrapper()
+	if wrapperErr != nil {
+		PrintInfo("Could not install shell wrapper: " + wrapperErr.Error())
+	} else if wrapperModified {
+		PrintSuccess(fmt.Sprintf("Installed bwenv shell wrapper in %s", wrapperRC))
+		rcFile = wrapperRC
+		rcModified = true
+	}
 
 	// -- Done! Show the final success summary --
 	fmt.Println()
-	printSuccessSummary(chosenProvider, chosenFolder, cwd, varNames, direnvAllowed, modified, rcFile)
+	printSuccessSummary(chosenProvider, chosenFolder, cwd, varNames, rcModified, rcFile)
 
 	return nil
 }
@@ -235,7 +255,7 @@ func printVariablePreview(varNames []string) {
 	count := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorSuccess).
-		Render(fmt.Sprintf("✓ Found %d variable(s)", len(varNames)))
+		Render(fmt.Sprintf("%s Found %d variable(s)", E("✓", "[OK]"), len(varNames)))
 
 	fmt.Printf("  %s\n", count)
 
@@ -285,7 +305,7 @@ func printVariablePreview(varNames []string) {
 func printNoProvidersHelp(allProviders []provider.Provider) {
 	fmt.Println()
 	PrintBoxError(
-		"❌ No password manager CLI tools found!",
+		E("❌", "[ERROR]")+" No password manager CLI tools found!",
 		"",
 		"bwenv needs at least one of the following installed:",
 	)
@@ -306,99 +326,56 @@ func printNoProvidersHelp(allProviders []provider.Provider) {
 }
 
 // printSuccessSummary displays the final success box after .envrc generation.
-// It shows what was configured, which variables will load, and what happens next.
-func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string, varNames []string, direnvAllowed bool, rcModified bool, rcFile string) {
-	// Build the summary lines for the success box.
+// Designed to be concise — one box with all info, clear next step.
+func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string, varNames []string, rcModified bool, rcFile string) {
+	// Build a single summary box with everything the user needs.
 	summaryLines := []string{
-		"✅ Setup complete!",
+		E("✅", "[OK]") + " Setup complete!",
 		"",
 		fmt.Sprintf("  Provider:   %s", p.Name()),
 		fmt.Sprintf("  Folder:     %s", folder.Name),
-		fmt.Sprintf("  Location:   %s/.envrc", cwd),
-	}
-
-	if len(varNames) > 0 {
-		summaryLines = append(summaryLines,
-			fmt.Sprintf("  Variables:  %d secret(s) ready to load", len(varNames)))
-	}
-
-	if rcModified {
-		summaryLines = append(summaryLines,
-			fmt.Sprintf("  Shell RC:   %s (direnv silenced)", rcFile))
+		fmt.Sprintf("  Variables:  %d secret(s)", len(varNames)),
+		fmt.Sprintf("  Location:   %s/.envrc", ShortenHomePath(cwd)),
 	}
 
 	PrintBoxSuccess(summaryLines...)
 
-	// If direnv was allowed, tell the user things are ready.
-	// If not, tell them what to do.
-	if direnvAllowed {
-		fmt.Println()
-		readyTitle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorSuccess).
-			Render("⚡ Your secrets are ready!")
-
-		fmt.Printf("  %s\n\n", readyTitle)
-
-		hint1 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Open a new terminal or run")
-		cmd1 := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("cd .")
-		hint1b := lipgloss.NewStyle().Foreground(ColorMuted).Render("to trigger direnv")
-		fmt.Printf("    %s %s %s\n", hint1, cmd1, hint1b)
-
-		hint2 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Verify with")
-		cmd2 := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("env | grep <YOUR_VAR>")
-		fmt.Printf("    %s %s\n", hint2, cmd2)
-
-		hint3 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Remove when done:")
-		cmd3 := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("bwenv remove")
-		fmt.Printf("    %s %s\n", hint3, cmd3)
-	} else {
-		fmt.Println()
-		nextTitle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorPrimary).
-			Render("Next steps:")
-
-		fmt.Printf("  %s\n\n", nextTitle)
-
-		step1 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Approve the .envrc file:")
-		cmd1 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("direnv allow")
-		fmt.Printf("    1. %s  %s\n", step1, cmd1)
-
-		step2 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Verify secrets are loaded:")
-		cmd2 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("env | grep <YOUR_VAR>")
-		fmt.Printf("    2. %s  %s\n", step2, cmd2)
-
-		step3 := lipgloss.NewStyle().Foreground(ColorMuted).Render("Remove secrets when done:")
-		cmd3 := lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("bwenv remove")
-		fmt.Printf("    3. %s  %s\n", step3, cmd3)
-	}
-
 	fmt.Println()
 
-	// Quiet hint about what happens behind the scenes.
-	hint := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Italic(true).
-		Render("  Secrets load automatically when you cd into this directory.")
-	fmt.Println(hint)
-
 	if rcModified {
-		rcHint := lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			Italic(true).
-			Render(fmt.Sprintf("  Restart your shell or run: source %s", rcFile))
-		fmt.Println(rcHint)
+		// Shell RC was modified — user must source it (or restart) to
+		// activate the bwenv wrapper and DIRENV_LOG_FORMAT.
+		activateCmd := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).
+			Render(fmt.Sprintf("source %s", rcFile))
+		fmt.Fprintf(os.Stderr, "  %s  %s\n",
+			lipgloss.NewStyle().Foreground(ColorMuted).Render("Activate now:"),
+			activateCmd)
+
+		subHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
+			Render("  After that, secrets load automatically when you cd into this directory.")
+		fmt.Fprintln(os.Stderr, subHint)
+
+		wrapperHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
+			Render("  Commands like bwenv allow/disallow/remove manage variables directly.")
+		fmt.Fprintln(os.Stderr, wrapperHint)
+	} else {
+		// RC was already set up — everything works out of the box.
+		hint := lipgloss.NewStyle().Foreground(ColorMuted).
+			Render("Secrets load automatically when you cd into this directory.")
+		fmt.Fprintf(os.Stderr, "  %s\n", hint)
+
+		triggerHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
+			Render("  To load now: cd .")
+		fmt.Fprintln(os.Stderr, triggerHint)
 	}
 
-	// If direnv is not installed, show a helpful nudge.
+	// If direnv is missing, show a warning.
 	if _, err := exec.LookPath("direnv"); err != nil {
 		fmt.Println()
 		PrintBoxWarning(
-			"⚠  direnv is not installed",
+			E("⚠ ", "! ")+" direnv is not installed",
 			"",
-			"   bwenv generates .envrc files that direnv loads automatically.",
-			"   Install direnv: https://direnv.net/",
+			"   Install: https://direnv.net/",
 		)
 	}
 

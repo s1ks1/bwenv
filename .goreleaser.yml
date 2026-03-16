@@ -70,6 +70,12 @@ archives:
     files:
       - LICENSE
       - README.md
+      # Windows .cmd wrapper so users can type "bwenv" instead of "bwenv.exe".
+      - src: packaging/windows/bwenv.cmd
+        dst: .
+        info:
+          mtime: "{{ .CommitDate }}"
+        strip_parent: true
 
 # -- Checksum file --
 # Generate a SHA256 checksums file for all release artifacts.

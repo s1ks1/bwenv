@@ -5,6 +5,7 @@ package provider
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -52,6 +53,11 @@ type Provider interface {
 	// GetSecrets retrieves all key-value secrets from the specified folder.
 	// The session parameter may be needed for providers like Bitwarden.
 	GetSecrets(session string, folder Folder) ([]Secret, error)
+
+	// Lock terminates the current session / locks the vault.
+	// For Bitwarden this runs "bw lock", for 1Password "op signout".
+	// Returns nil if the provider has no active session or locking is not applicable.
+	Lock() error
 }
 
 // registry holds all registered providers, keyed by their slug.
@@ -73,16 +79,21 @@ func Get(slug string) (Provider, error) {
 	return p, nil
 }
 
-// All returns a list of every registered provider, in no particular order.
+// All returns a list of every registered provider, sorted by name for
+// deterministic output (map iteration order is random in Go).
 func All() []Provider {
 	providers := make([]Provider, 0, len(registry))
 	for _, p := range registry {
 		providers = append(providers, p)
 	}
+	sort.Slice(providers, func(i, j int) bool {
+		return providers[i].Name() < providers[j].Name()
+	})
 	return providers
 }
 
-// Available returns only providers whose CLI tool is installed on this system.
+// Available returns only providers whose CLI tool is installed on this system,
+// sorted by name for deterministic output.
 func Available() []Provider {
 	var available []Provider
 	for _, p := range registry {
@@ -90,6 +101,9 @@ func Available() []Provider {
 			available = append(available, p)
 		}
 	}
+	sort.Slice(available, func(i, j int) bool {
+		return available[i].Name() < available[j].Name()
+	})
 	return available
 }
 
