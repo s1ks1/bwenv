@@ -139,7 +139,7 @@ func RunLogoutFlow(version string) error {
 		summaryLines = append(summaryLines, E("✅", "[OK]")+" All sessions terminated")
 		summaryLines = append(summaryLines, "")
 		summaryLines = append(summaryLines, "  Your vaults are now locked.")
-		summaryLines = append(summaryLines, "  Run 'bwenv init' to start a new session.")
+		summaryLines = append(summaryLines, "  Run 'bwenv login' to start a new session.")
 		PrintBoxSuccess(summaryLines...)
 	} else if anyErrors {
 		PrintWarning("Some providers could not be locked — see errors above")

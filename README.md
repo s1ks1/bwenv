@@ -32,6 +32,7 @@ The original bwenv was built with Bash scripts, which worked — but had constan
 - **🖥️ True cross-platform** — Single binary for Linux, macOS, and Windows (amd64 + arm64)
 - **🔍 Smart diagnostics** — `bwenv status` checks every dependency, session, and config
 - **⚙️ Configurable UI** — Toggle emoji, direnv output, export summaries via `bwenv config`
+- **🔑 Quick re-auth** — Session expired? `bwenv login` re-authenticates and updates your `.envrc` in one step
 - **🔒 Secure logout** — Lock vaults and terminate sessions with `bwenv logout`
 - **📊 Quick status** — See active sessions, .envrc info, dependencies, and preferences with `bwenv status`
 - **⚡ Zero runtime dependencies** — Just the Go binary + your password manager CLI + direnv
@@ -150,7 +151,23 @@ Opens an interactive settings editor where you can toggle:
 
 Settings are persisted to `~/.config/bwenv/config.json`.
 
-### 4. Lock Vaults / Logout
+### 4. Re-authenticate (Session Expired)
+
+```bash
+bwenv login
+```
+
+If your vault session has expired, `bwenv login` will:
+- Detect which provider is configured in your `.envrc`
+- Re-authenticate with that provider (unlock/sign in)
+- Update the session token in your `.envrc`
+- Auto-approve the updated `.envrc` via direnv
+
+This is much faster than running `bwenv init` again — it skips provider and folder selection entirely.
+
+> **Alias:** `bwenv auth` works too.
+
+### 5. Lock Vaults / Logout
 
 ```bash
 bwenv logout
@@ -163,7 +180,7 @@ Terminates all active provider sessions for security:
 
 Use this when you're done working with secrets or stepping away from your machine.
 
-### 5. Status & Diagnostics
+### 6. Status & Diagnostics
 
 ```bash
 bwenv status
@@ -176,7 +193,7 @@ Shows a comprehensive overview of your current bwenv state:
 - Relevant environment variables (masked for security)
 - Current config preferences
 
-### 6. Remove Secrets
+### 7. Remove Secrets
 
 ```bash
 bwenv remove
@@ -184,7 +201,7 @@ bwenv remove
 
 Deletes the `.envrc` file from the current directory.
 
-### 7. Version
+### 8. Version
 
 ```bash
 bwenv version
@@ -242,6 +259,7 @@ bwenv/
 │   │   ├── provider_picker.go       # Bubble Tea model for provider selection
 │   │   ├── folder_picker.go         # Bubble Tea model for folder selection
 │   │   ├── init_flow.go             # Orchestrates the full init TUI flow
+│   │   ├── login_flow.go            # Re-authentication flow for expired sessions
 │   │   ├── config_flow.go           # Interactive config editor TUI
 │   │   ├── logout_flow.go           # Vault locking and session termination
 │   │   └── status_flow.go           # Status overview & diagnostics (merged)
@@ -357,7 +375,7 @@ If you're upgrading from the original Bash-based bwenv:
 | Windows | `.bat` file with PowerShell fallbacks | Native `.exe` binary |
 | Helper scripts | `bitwarden_folders.sh` + `bwenv` bash script | None — everything is in the single binary |
 | Config | None | Persistent preferences via `bwenv config` |
-| Session management | Manual | `bwenv logout` to lock vaults |
+| Session management | Manual | `bwenv login` to re-auth, `bwenv logout` to lock vaults |
 | Status overview | None | `bwenv status` for quick state check |
 
 ---

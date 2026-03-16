@@ -64,6 +64,13 @@ func main() {
 		// "settings" is an alias for "config" for convenience.
 		runConfig()
 
+	case "login", "auth":
+		// Re-authenticate with the provider configured in .envrc.
+		// This is the quick recovery path when a session expires —
+		// much faster than re-running "bwenv init".
+		// "auth" is an alias for "login" for convenience.
+		runLogin()
+
 	case "logout", "lock":
 		// Lock all provider vaults and terminate sessions.
 		// "lock" is an alias for "logout" for convenience.
@@ -143,11 +150,31 @@ func runAllow() {
 	if isTTY {
 		// Direct invocation without the shell wrapper.
 		// Don't print secrets to the terminal — just approve .envrc.
+		//
+		// Before approving, re-authenticate and update .envrc with a fresh
+		// session token. Otherwise direnv re-fires with the stale BW_SESSION
+		// from .envrc and "bwenv export" fails with "session expired".
+		prov, folder, _ := envrc.ParseEnvrcConfig()
+		if prov != "" && folder != "" {
+			session, err := envrc.ReauthenticateProvider(prov)
+			if err != nil {
+				// Non-fatal — if re-auth fails (e.g. 1Password, no session needed),
+				// we still approve .envrc and let direnv handle it.
+				_ = err
+			} else if session != "" {
+				if updateErr := envrc.UpdateSession(session); updateErr != nil {
+					fmt.Fprintf(os.Stderr, "  %s %s\n",
+						ui.E("⚠ ", "!"),
+						lipgloss.NewStyle().Foreground(ui.ColorWarning).Render(
+							fmt.Sprintf("Could not update .envrc session: %v", updateErr)))
+				}
+			}
+		}
+
 		if err := envrc.AllowDirenv(); err != nil {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
 		}
-		prov, folder, _ := envrc.ParseEnvrcConfig()
 		if prov != "" && folder != "" {
 			fmt.Fprintf(os.Stderr, "  %s %s\n",
 				ui.E("✅", "[OK]"),
@@ -230,7 +257,7 @@ func runExamples() {
 	fmt.Println()
 
 	// ── Direnv Control ─────────────────────────────────────
-	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("⚡", ">>")+ " Secret Management"))
+	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("⚡", ">>")+" Secret Management"))
 	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv allow"), mutedStyle.Render("# Approve .envrc + load secrets into shell"))
 	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv disallow"), mutedStyle.Render("# Block .envrc + clear variables from shell"))
 	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv remove"), mutedStyle.Render("# Delete .envrc + clear variables from shell"))
@@ -238,6 +265,7 @@ func runExamples() {
 
 	// ── Day-to-Day ─────────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("📊", ">>")+" Day-to-Day"))
+	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv login"), mutedStyle.Render("# Re-authenticate when session expires"))
 	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv status"), mutedStyle.Render("# Full status + diagnostics"))
 	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv config"), mutedStyle.Render("# Toggle emoji, direnv output, etc."))
 	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv logout"), mutedStyle.Render("# Lock vaults, end sessions"))
@@ -301,6 +329,35 @@ func runLogout() {
 	}
 }
 
+// runLogin re-authenticates with the provider configured in .envrc and
+// re-exports secrets. This is the quick recovery path when a session expires.
+//
+// Like runAllow, it operates in two modes:
+//   - TTY mode (direct invocation): shows a styled flow, authenticates,
+//     verifies folder access, and runs "direnv allow" — then tells the user
+//     to "cd ." to load secrets.
+//   - Pipe mode (via shell wrapper): authenticates, exports secrets + session
+//     token to stdout (eval'd by the wrapper), and runs "direnv allow".
+func runLogin() {
+	fi, _ := os.Stdout.Stat()
+	isTTY := (fi.Mode() & os.ModeCharDevice) != 0
+
+	if isTTY {
+		// Direct invocation in a terminal — show the interactive flow.
+		if err := ui.RunLoginFlow(Version); err != nil {
+			ui.PrintError("Login failed", err)
+			os.Exit(1)
+		}
+	} else {
+		// Pipe mode (via shell wrapper or manual eval) — authenticate + export.
+		_, _, err := envrc.LoginAndExport()
+		if err != nil {
+			ui.PrintError("Login failed", err)
+			os.Exit(1)
+		}
+	}
+}
+
 // runStatus displays a comprehensive overview of the current bwenv state,
 // including diagnostics. This is the merged status + test command.
 func runStatus() {
@@ -357,6 +414,7 @@ func printUsage() {
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("logout     "), descStyle.Render(ui.E("🔒", "->")+` Lock vaults and terminate active sessions`))
@@ -378,5 +436,5 @@ func printUsage() {
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv examples        # See all usage examples"))
 	fmt.Println()
 
-	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, doctor/test → status, lock → logout, deny → disallow, settings → config"))
+	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, doctor/test → status, lock → logout, deny → disallow, settings → config, auth → login"))
 }

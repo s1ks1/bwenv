@@ -212,7 +212,7 @@ go install github.com/s1ks1/bwenv@latest
 ### From Source (All Platforms)
 
 ```bash
-# Requires Go 1.21+ installed
+# Requires Go 1.22+ installed
 git clone https://github.com/s1ks1/bwenv.git
 cd bwenv
 make install    # Builds and installs to ~/.local/bin
@@ -538,6 +538,12 @@ bwenv config   # Toggle "Show Direnv Output" to OFF
 #### Bitwarden: "Your vault is locked"
 
 ```bash
+bwenv login               # Re-authenticate and update .envrc in one step
+```
+
+If `bwenv login` doesn't work (e.g. no `.envrc` exists yet):
+
+```bash
 bwenv logout              # Clear stale sessions
 bw unlock                 # Unlock vault again
 bwenv init                # Re-run setup to get a fresh session
@@ -548,13 +554,14 @@ bwenv init                # Re-run setup to get a fresh session
 The BW_SESSION token has expired. Re-authenticate:
 
 ```bash
-bwenv logout
-bwenv init
+bwenv login               # Fastest way — re-auths and updates .envrc
 ```
 
 #### 1Password: "not signed in"
 
 ```bash
+bwenv login               # Re-authenticate and update .envrc
+# Or manually:
 op signin                 # Re-authenticate
 bwenv init                # Re-run setup
 ```

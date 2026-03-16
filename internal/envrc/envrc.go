@@ -170,7 +170,7 @@ func Generate(cfg Config) error {
 	// -- Bitwarden session token (if applicable) --
 	if cfg.Session != "" {
 		b.WriteString("# Bitwarden session token (required for vault access)\n")
-		b.WriteString("# This token expires — re-run 'bwenv init' if you get auth errors.\n")
+		b.WriteString("# This token expires — run 'bwenv login' to re-authenticate.\n")
 		b.WriteString(fmt.Sprintf("export BW_SESSION=%s\n", shellQuote(cfg.Session)))
 		b.WriteString("\n")
 	}
@@ -190,6 +190,48 @@ func Generate(cfg Config) error {
 	// The .envrc may contain sensitive data like BW_SESSION tokens.
 	if err := os.WriteFile(".envrc", []byte(b.String()), 0600); err != nil {
 		return fmt.Errorf("failed to write .envrc: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateSession replaces the BW_SESSION token in the existing .envrc file
+// with a fresh one. This is called by "bwenv login" (TTY mode) and
+// "bwenv allow" (TTY mode) after re-authenticating, so that subsequent
+// direnv loads use the new token instead of the stale one.
+//
+// If the .envrc doesn't contain a BW_SESSION line (e.g. 1Password provider),
+// this is a no-op. If the .envrc doesn't exist, it returns an error.
+func UpdateSession(newSession string) error {
+	if newSession == "" {
+		return nil // Nothing to update (e.g. 1Password doesn't use session tokens).
+	}
+
+	content, err := os.ReadFile(".envrc")
+	if err != nil {
+		return fmt.Errorf("could not read .envrc: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	found := false
+	newLine := fmt.Sprintf("export BW_SESSION=%s", shellQuote(newSession))
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "export BW_SESSION=") {
+			lines[i] = newLine
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		// No BW_SESSION line exists — nothing to update.
+		return nil
+	}
+
+	if err := os.WriteFile(".envrc", []byte(strings.Join(lines, "\n")), 0600); err != nil {
+		return fmt.Errorf("failed to update .envrc: %w", err)
 	}
 
 	return nil
@@ -265,6 +307,72 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 	}
 
 	return providerSlug, folderName, nil
+}
+
+// LoginAndExport is the handler for `eval "$(bwenv login)"`. It:
+//  1. Parses .envrc to get provider/folder info.
+//  2. Authenticates interactively (may prompt for master password).
+//  3. Fetches secrets and prints export lines to stdout.
+//  4. Exports the fresh BW_SESSION (if applicable) so the parent shell
+//     inherits a valid token — direnv re-fires silently.
+//  5. Runs "direnv allow" so the .envrc is trusted.
+//
+// This is functionally identical to AllowAndExport but semantically different:
+// it's the recovery path when a session expires, while AllowAndExport is the
+// initial approval path. Having a distinct "login" command makes the UX clearer.
+func LoginAndExport() (providerSlug string, folderName string, err error) {
+	// Step 1: Parse .envrc to get provider/folder info.
+	providerSlug, folderName, err = ParseEnvrcConfig()
+	if err != nil {
+		return "", "", fmt.Errorf("could not parse .envrc: %w", err)
+	}
+
+	// Step 2: Authenticate and export secrets. This is the one-and-only
+	// place the user may be prompted for their master password.
+	session, exportErr := ExportInteractive(providerSlug, folderName)
+	if exportErr != nil {
+		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
+	}
+
+	// Step 3: Output the fresh session token so the parent shell has it.
+	if session != "" {
+		fmt.Printf("export BW_SESSION=%s\n", shellQuote(session))
+	}
+
+	// Step 4: Ensure DIRENV_LOG_FORMAT is set in the parent shell.
+	fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
+	fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+
+	// Step 5: Run direnv allow LAST.
+	if allowErr := AllowDirenv(); allowErr != nil {
+		_ = allowErr // Non-fatal.
+	}
+
+	return providerSlug, folderName, nil
+}
+
+// ReauthenticateProvider authenticates with the named provider and returns
+// the fresh session token. This is a lightweight helper for callers that
+// need to refresh the session without exporting secrets (e.g. "bwenv allow"
+// in TTY mode, which just needs to update the BW_SESSION in .envrc).
+//
+// Returns ("", nil) for providers that don't use session tokens (e.g. 1Password).
+func ReauthenticateProvider(providerSlug string) (string, error) {
+	p, err := provider.Get(providerSlug)
+	if err != nil {
+		return "", fmt.Errorf("provider %q not found: %w", providerSlug, err)
+	}
+
+	if !p.IsAvailable() {
+		return "", fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
+	}
+
+	session, err := p.Authenticate()
+	if err != nil {
+		return "", fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
+	}
+
+	return session, nil
 }
 
 // ParseEnvrcConfig reads the .envrc in the current directory and extracts
@@ -566,14 +674,14 @@ const shellWrapperMarker = "# bwenv shell integration"
 
 // shellWrapperBashZsh is the shell function for bash/zsh that wraps bwenv
 // commands. Commands that produce shell code (export/unset) are eval'd
-// transparently, so "bwenv allow" / "bwenv disallow" / "bwenv remove"
-// can modify the current shell's environment directly.
+// transparently, so "bwenv allow" / "bwenv disallow" / "bwenv remove" /
+// "bwenv login" can modify the current shell's environment directly.
 const shellWrapperBashZsh = `
 # bwenv shell integration — enables seamless secret management
-# Commands like allow/disallow/remove modify your shell environment directly.
+# Commands like allow/disallow/remove/login modify your shell environment directly.
 bwenv() {
   case "${1:-}" in
-    allow|disallow|deny|remove|clean|export|load)
+    allow|disallow|deny|remove|clean|export|load|login|auth)
       local _bwenv_out
       _bwenv_out="$(command bwenv "$@")"
       local _bwenv_rc=$?
@@ -592,7 +700,7 @@ const shellWrapperFish = `
 # bwenv shell integration — enables seamless secret management
 function bwenv
   switch $argv[1]
-    case allow disallow deny remove clean export load
+    case allow disallow deny remove clean export load login auth
       set -l _out (command bwenv $argv)
       set -l _rc $status
       if test $_rc -eq 0 -a -n "$_out"
@@ -762,7 +870,7 @@ func exportSecrets(providerSlug string, folderName string, interactive bool) (st
 		// Non-interactive mode (direnv .envrc): use existing session only.
 		if !p.IsAuthenticated() {
 			err = fmt.Errorf(
-				"session expired or not active — run 'bwenv init' to re-authenticate")
+				"session expired or not active — run 'bwenv login' to re-authenticate")
 			printExportError("Authentication required", err)
 			return "", err
 		}

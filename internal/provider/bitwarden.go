@@ -114,7 +114,7 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 		if stderrStr != "" {
 			return nil, fmt.Errorf("failed to list Bitwarden folders: %s", stderrStr)
 		}
-		return nil, fmt.Errorf("failed to list Bitwarden folders: %w (is your session still valid? try 'bwenv logout' then 'bwenv init')", err)
+		return nil, fmt.Errorf("failed to list Bitwarden folders: %w (is your session still valid? try 'bwenv login' to re-authenticate)", err)
 	}
 
 	out := bytes.TrimSpace(stdout.Bytes())
@@ -126,7 +126,7 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 		return nil, fmt.Errorf(
 			"Bitwarden CLI returned empty output when listing folders.\n" +
 				"    This usually means your session has expired.\n" +
-				"    Run 'bwenv logout' and then 'bwenv init' to re-authenticate")
+				"    Run 'bwenv login' to re-authenticate")
 	}
 
 	// Verify the output looks like a JSON array before parsing.
@@ -140,7 +140,7 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 		}
 		return nil, fmt.Errorf(
 			"Bitwarden CLI returned unexpected output (expected JSON array):\n    %s\n"+
-				"    Your session may have expired. Run 'bwenv logout' and then 'bwenv init' to re-authenticate",
+				"    Your session may have expired. Run 'bwenv login' to re-authenticate",
 			preview)
 	}
 
@@ -200,7 +200,7 @@ func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) 
 	if len(out) == 0 {
 		return nil, fmt.Errorf(
 			"Bitwarden CLI returned empty output for folder %q.\n"+
-				"    Your session may have expired. Run 'bwenv logout' and then 'bwenv init' to re-authenticate",
+				"    Your session may have expired. Run 'bwenv login' to re-authenticate",
 			folder.Name)
 	}
 

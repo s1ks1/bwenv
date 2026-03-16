@@ -1,6 +1,6 @@
 module github.com/s1ks1/bwenv
 
-go 1.25.7
+go 1.24.2
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0

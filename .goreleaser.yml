@@ -140,6 +140,21 @@ release:
     scoop install bwenv
     ```
 
+    **Go Install:**
+    ```bash
+    go install github.com/s1ks1/bwenv@latest
+    ```
+
+    **Quick Install (macOS / Linux):**
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
+    ```
+
+    **Quick Install (Windows PowerShell):**
+    ```powershell
+    irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
+    ```
+
     **Manual download:** Grab the archive for your platform below, extract it,
     and place the `bwenv` binary somewhere in your `PATH`.
 
@@ -192,7 +207,7 @@ brews:
     caveats: |
       To get started, run:
 
-        bwenv test
+        bwenv status
 
       Make sure direnv is hooked into your shell:
         bash: eval "$(direnv hook bash)"
@@ -221,4 +236,4 @@ scoops:
     license: MIT
 
     # Post-install message.
-    post_install: ["Write-Host 'Run ''bwenv test'' to verify your setup.' -ForegroundColor Green"]
+    post_install: ["Write-Host 'Run ''bwenv status'' to verify your setup.' -ForegroundColor Green"]
