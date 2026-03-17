@@ -1,143 +1,248 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+# =============================================================================
+# bwenv — Cross-platform installer for macOS and Linux
+#
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
+#   wget -qO- https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
+#
+# Options (via environment variables):
+#   BWENV_VERSION   Specific version to install (default: latest)
+#   BWENV_DIR       Installation directory (default: ~/.local/bin)
+#
+# Supports: macOS (amd64, arm64), Linux (amd64, arm64)
+# =============================================================================
+set -e
 
-# bwenv installer for Linux and macOS
-# Usage: curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | bash
+# -- Configuration --
+GITHUB_REPO="s1ks1/bwenv"
+INSTALL_DIR="${BWENV_DIR:-$HOME/.local/bin}"
+TMP_DIR=""
 
-REPO="s1ks1/bwenv"
-INSTALL_LIB="${HOME}/.config/direnv/lib"
-INSTALL_BIN="${HOME}/.local/bin"
-BRANCH="main"
+# -- Colors --
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
 
-info()  { echo "  [INFO] $*"; }
-ok()    { echo "  [OK]   $*"; }
-warn()  { echo "  [WARN] $*"; }
+info()    { printf "${BLUE}${BOLD}[info]${NC}  %s\n" "$1"; }
+success() { printf "${GREEN}${BOLD}[ok]${NC}    %s\n" "$1"; }
+warn()    { printf "${YELLOW}${BOLD}[warn]${NC}  %s\n" "$1"; }
+error()   { printf "${RED}${BOLD}[error]${NC} %s\n" "$1" >&2; exit 1; }
 
-echo ""
-echo "Installing bwenv..."
-echo ""
+# -- Cleanup on exit --
+cleanup() {
+    if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+        rm -rf "$TMP_DIR"
+    fi
+}
+trap cleanup EXIT
 
-# Detect OS
-OS="$(uname -s)"
-case "$OS" in
-  Linux*)  PLATFORM="linux" ;;
-  Darwin*) PLATFORM="macos" ;;
-  *)       echo "  [ERROR] Unsupported OS: $OS" >&2; exit 1 ;;
-esac
-info "Platform: $PLATFORM"
+# -- Detect OS and architecture --
+detect_platform() {
+    OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    ARCH="$(uname -m)"
 
-# Check / auto-install dependencies
-echo ""
-echo "Checking dependencies..."
+    case "$OS" in
+        linux)  OS="linux" ;;
+        darwin) OS="darwin" ;;
+        *)      error "Unsupported operating system: $OS" ;;
+    esac
 
-if command -v bw >/dev/null 2>&1; then
-  ok "bw (Bitwarden CLI)"
-else
-  warn "bw not found - install from https://bitwarden.com/help/cli/"
-fi
+    case "$ARCH" in
+        x86_64|amd64)   ARCH="amd64" ;;
+        aarch64|arm64)  ARCH="arm64" ;;
+        *)              error "Unsupported architecture: $ARCH" ;;
+    esac
 
-if command -v direnv >/dev/null 2>&1; then
-  ok "direnv"
-else
-  warn "direnv not found - install from https://direnv.net/"
-fi
+    PLATFORM="${OS}-${ARCH}"
+}
 
-if command -v jq >/dev/null 2>&1; then
-  ok "jq"
-else
-  echo "  [....] jq not found - installing..."
-  if [ "$PLATFORM" = "macos" ]; then
-    if command -v brew >/dev/null 2>&1; then
-      brew install jq >/dev/null 2>&1 && ok "jq installed via Homebrew" || warn "Failed to install jq"
+# -- Detect download tool --
+detect_downloader() {
+    if command -v curl >/dev/null 2>&1; then
+        DOWNLOADER="curl"
+    elif command -v wget >/dev/null 2>&1; then
+        DOWNLOADER="wget"
     else
-      warn "Install jq manually: brew install jq"
+        error "Neither curl nor wget found. Please install one of them."
     fi
-  else
-    if command -v apt-get >/dev/null 2>&1; then
-      sudo apt-get install -y jq >/dev/null 2>&1 && ok "jq installed via apt" || warn "Failed to install jq"
-    elif command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y jq >/dev/null 2>&1 && ok "jq installed via dnf" || warn "Failed to install jq"
-    elif command -v pacman >/dev/null 2>&1; then
-      sudo pacman -S --noconfirm jq >/dev/null 2>&1 && ok "jq installed via pacman" || warn "Failed to install jq"
+}
+
+# -- Download a URL to a file --
+download() {
+    url="$1"
+    output="$2"
+    if [ "$DOWNLOADER" = "curl" ]; then
+        curl -fsSL "$url" -o "$output"
     else
-      warn "Install jq manually: https://stedolan.github.io/jq/"
+        wget -qO "$output" "$url"
     fi
-  fi
-fi
+}
 
-# Create directories
-mkdir -p "$INSTALL_LIB"
-mkdir -p "$INSTALL_BIN"
-
-# Download files
-echo ""
-echo "Downloading bwenv..."
-BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
-
-curl -fsSL "${BASE_URL}/setup/bitwarden_folders.sh" -o "${INSTALL_LIB}/bitwarden_folders.sh"
-chmod +x "${INSTALL_LIB}/bitwarden_folders.sh"
-ok "Helper script -> ${INSTALL_LIB}/bitwarden_folders.sh"
-
-curl -fsSL "${BASE_URL}/setup/bwenv" -o "${INSTALL_BIN}/bwenv"
-chmod +x "${INSTALL_BIN}/bwenv"
-ok "CLI -> ${INSTALL_BIN}/bwenv"
-
-# Check PATH
-echo ""
-if echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_BIN"; then
-  ok "${INSTALL_BIN} is in PATH"
-else
-  warn "${INSTALL_BIN} is not in PATH"
-  SHELL_NAME="$(basename "${SHELL:-bash}")"
-  case "$SHELL_NAME" in
-    bash) RC_FILE="$HOME/.bashrc" ;;
-    zsh)  RC_FILE="$HOME/.zshrc" ;;
-    fish) RC_FILE="$HOME/.config/fish/config.fish" ;;
-    *)    RC_FILE="" ;;
-  esac
-  if [ -n "$RC_FILE" ] && [ -f "$RC_FILE" ]; then
-    if ! grep -q "${INSTALL_BIN}" "$RC_FILE" 2>/dev/null; then
-      if [ "$SHELL_NAME" = "fish" ]; then
-        echo "set -gx PATH ${INSTALL_BIN} \$PATH" >> "$RC_FILE"
-      else
-        echo "export PATH=\"${INSTALL_BIN}:\$PATH\"" >> "$RC_FILE"
-      fi
-      ok "Added to ${RC_FILE}"
-      info "Restart your terminal or run: source ${RC_FILE}"
+# -- Fetch content from a URL --
+fetch() {
+    url="$1"
+    if [ "$DOWNLOADER" = "curl" ]; then
+        curl -fsSL "$url"
+    else
+        wget -qO- "$url"
     fi
-  else
-    info "Add to your shell config: export PATH=\"${INSTALL_BIN}:\$PATH\""
-  fi
-fi
+}
 
-# Setup direnv hook
-echo ""
-if command -v direnv >/dev/null 2>&1; then
-  SHELL_NAME="$(basename "${SHELL:-bash}")"
-  case "$SHELL_NAME" in
-    bash)
-      if [ -f "$HOME/.bashrc" ] && ! grep -q "direnv hook bash" "$HOME/.bashrc"; then
-        echo 'eval "$(direnv hook bash)"' >> "$HOME/.bashrc"
-        ok "Added direnv hook to ~/.bashrc"
-      fi
-      ;;
-    zsh)
-      if [ -f "$HOME/.zshrc" ] && ! grep -q "direnv hook zsh" "$HOME/.zshrc"; then
-        echo 'eval "$(direnv hook zsh)"' >> "$HOME/.zshrc"
-        ok "Added direnv hook to ~/.zshrc"
-      fi
-      ;;
-    fish)
-      mkdir -p "$HOME/.config/fish"
-      if [ -f "$HOME/.config/fish/config.fish" ] && ! grep -q "direnv hook fish" "$HOME/.config/fish/config.fish"; then
-        echo 'direnv hook fish | source' >> "$HOME/.config/fish/config.fish"
-        ok "Added direnv hook to fish config"
-      fi
-      ;;
-  esac
-fi
+# -- Get the latest release version from GitHub --
+get_latest_version() {
+    # Use the GitHub API to get the latest release tag.
+    LATEST_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    VERSION=$(fetch "$LATEST_URL" 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 
-echo ""
-echo "bwenv installed successfully!"
-echo "  Run 'bwenv test' to verify your setup."
-echo ""
+    if [ -z "$VERSION" ]; then
+        error "Could not determine latest version. Set BWENV_VERSION manually."
+    fi
+}
+
+# -- Verify checksum (if checksums.txt is available) --
+verify_checksum() {
+    archive_path="$1"
+    archive_name="$2"
+    version="$3"
+
+    CHECKSUMS_URL="https://github.com/${GITHUB_REPO}/releases/download/${version}/checksums.txt"
+
+    info "Verifying checksum..."
+    CHECKSUMS=$(fetch "$CHECKSUMS_URL" 2>/dev/null || true)
+
+    if [ -z "$CHECKSUMS" ]; then
+        warn "Checksums not available — skipping verification"
+        return
+    fi
+
+    EXPECTED=$(echo "$CHECKSUMS" | grep "$archive_name" | awk '{print $1}')
+    if [ -z "$EXPECTED" ]; then
+        warn "No checksum found for $archive_name — skipping verification"
+        return
+    fi
+
+    # Compute actual checksum.
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL=$(sha256sum "$archive_path" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        ACTUAL=$(shasum -a 256 "$archive_path" | awk '{print $1}')
+    else
+        warn "No sha256sum or shasum found — skipping checksum verification"
+        return
+    fi
+
+    if [ "$EXPECTED" = "$ACTUAL" ]; then
+        success "Checksum verified"
+    else
+        error "Checksum mismatch!\n  Expected: $EXPECTED\n  Actual:   $ACTUAL"
+    fi
+}
+
+# -- Main --
+main() {
+    printf "\n"
+    printf "  ${BOLD}${BLUE}bwenv installer${NC}\n"
+    printf "  ─────────────────────────────\n\n"
+
+    detect_platform
+    detect_downloader
+    info "Detected platform: ${PLATFORM}"
+
+    # Determine version.
+    if [ -n "$BWENV_VERSION" ]; then
+        VERSION="$BWENV_VERSION"
+        info "Using specified version: ${VERSION}"
+    else
+        info "Fetching latest release..."
+        get_latest_version
+        info "Latest version: ${VERSION}"
+    fi
+
+    # Strip 'v' prefix for the archive naming convention.
+    VERSION_NUM="${VERSION#v}"
+
+    # Construct download URL.
+    ARCHIVE_NAME="bwenv-${VERSION}-${PLATFORM}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
+
+    # Create temp directory.
+    TMP_DIR="$(mktemp -d)"
+
+    # Download the archive.
+    info "Downloading ${ARCHIVE_NAME}..."
+    download "$DOWNLOAD_URL" "${TMP_DIR}/${ARCHIVE_NAME}" || \
+        error "Download failed. Check that version ${VERSION} exists for ${PLATFORM}.\n  URL: ${DOWNLOAD_URL}"
+
+    success "Downloaded successfully"
+
+    # Verify checksum.
+    verify_checksum "${TMP_DIR}/${ARCHIVE_NAME}" "$ARCHIVE_NAME" "$VERSION"
+
+    # Extract the archive.
+    info "Extracting..."
+    tar xzf "${TMP_DIR}/${ARCHIVE_NAME}" -C "${TMP_DIR}"
+
+    # Find the binary (it's inside a subdirectory).
+    BINARY=$(find "${TMP_DIR}" -name "bwenv" -type f | head -1)
+    if [ -z "$BINARY" ]; then
+        error "Could not find bwenv binary in the archive"
+    fi
+
+    # Install to the target directory.
+    info "Installing to ${INSTALL_DIR}..."
+    mkdir -p "$INSTALL_DIR"
+    cp "$BINARY" "${INSTALL_DIR}/bwenv"
+    chmod +x "${INSTALL_DIR}/bwenv"
+
+    success "Installed bwenv ${VERSION} to ${INSTALL_DIR}/bwenv"
+
+    # Check if install directory is in PATH.
+    printf "\n"
+    case ":$PATH:" in
+        *":${INSTALL_DIR}:"*)
+            success "${INSTALL_DIR} is in your PATH"
+            ;;
+        *)
+            warn "${INSTALL_DIR} is NOT in your PATH"
+            printf "\n"
+            info "Add it to your shell config:"
+            printf "    ${BOLD}export PATH=\"%s:\$PATH\"${NC}\n" "$INSTALL_DIR"
+            printf "\n"
+
+            # Detect shell and suggest the right RC file.
+            SHELL_NAME="$(basename "${SHELL:-/bin/sh}")"
+            case "$SHELL_NAME" in
+                zsh)  RC_FILE="~/.zshrc" ;;
+                bash)
+                    if [ "$(uname -s)" = "Darwin" ]; then
+                        RC_FILE="~/.bash_profile"
+                    else
+                        RC_FILE="~/.bashrc"
+                    fi
+                    ;;
+                fish) RC_FILE="~/.config/fish/config.fish" ;;
+                *)    RC_FILE="~/.profile" ;;
+            esac
+            info "Or add permanently to ${RC_FILE}:"
+            printf "    ${BOLD}echo 'export PATH=\"%s:\$PATH\"' >> %s${NC}\n" "$INSTALL_DIR" "$RC_FILE"
+            ;;
+    esac
+
+    # Verify the installation.
+    printf "\n"
+    if command -v bwenv >/dev/null 2>&1; then
+        INSTALLED_VERSION="$(bwenv version 2>/dev/null | head -1 || echo "unknown")"
+        success "bwenv is ready! Run 'bwenv status' to verify your setup."
+    else
+        info "Installation complete. Restart your shell or source your config, then run:"
+        printf "    ${BOLD}bwenv status${NC}\n"
+    fi
+
+    printf "\n"
+}
+
+main "$@"

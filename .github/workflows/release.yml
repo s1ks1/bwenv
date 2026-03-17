@@ -1,3 +1,18 @@
+# =============================================================================
+# GitHub Actions — Release workflow for bwenv
+#
+# Triggers on:
+#   - Pushing a version tag (e.g. v2.0.0)
+#   - Manual workflow dispatch with a version input
+#
+# What it does:
+#   1. Checks out the code and sets up Go
+#   2. Runs tests to ensure everything passes
+#   3. Uses GoReleaser to cross-compile binaries for all platforms
+#   4. Creates a GitHub Release with archives and checksums
+#   5. Updates the Homebrew tap and Scoop bucket automatically
+# =============================================================================
+
 name: Release
 
 on:
@@ -7,12 +22,51 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g., v1.1.0)"
+        description: "Version to release (e.g. v2.0.0)"
         required: true
         type: string
 
+# Only allow one release at a time to avoid conflicts.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
 jobs:
-  build:
+  # -- Test job: run tests before releasing --
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test -v -race -count=1 ./...
+
+  # -- Release job: build and publish --
+  release:
+    name: Release
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,10 +77,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up environment
-        run: sudo apt-get update && sudo apt-get install -y zip
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
-      - name: Get version
+      - name: Determine version
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -34,59 +91,47 @@ jobs:
           else
             VERSION="${GITHUB_REF#refs/tags/}"
           fi
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Releasing version: ${VERSION}"
 
-      - name: Build release packages
+      # Create and push the tag if triggered via workflow_dispatch
+      # (manual releases may not have a tag yet).
+      - name: Create tag (if manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          chmod +x scripts/build-release.sh
-          ./scripts/build-release.sh ${{ steps.version.outputs.VERSION }}
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Only create the tag if it doesn't already exist.
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            git tag -a "$VERSION" -m "Release $VERSION"
+            git push origin "$VERSION"
+          fi
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          tag_name: ${{ steps.version.outputs.VERSION }}
-          name: bwenv ${{ steps.version.outputs.VERSION }}
-          body: |
-            ## Installation
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tokens for updating the Homebrew tap and Scoop bucket repos.
+          # Set these as repository secrets if you want automatic tap/bucket updates.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
 
-            **Linux/macOS (one-line install):**
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | bash
-            ```
-
-            **Windows (PowerShell):**
-            ```powershell
-            irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
-            ```
-
-            **Homebrew (macOS/Linux):**
-            ```bash
-            brew tap s1ks1/bwenv
-            brew install bwenv
-            ```
-
-            **Scoop (Windows):**
-            ```powershell
-            scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
-            scoop install bwenv
-            ```
-
-            **Manual:** Download the archive for your platform below, extract, and run `make install` (Linux/macOS) or `install.ps1` (Windows).
-
-            See [README](https://github.com/s1ks1/bwenv#readme) for full documentation.
-          draft: false
-          prerelease: false
-          files: |
-            releases/*.tar.gz
-            releases/*.zip
-            releases/checksums.txt
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Homebrew formula
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload release artifacts summary
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          TARBALL_URL="https://github.com/s1ks1/bwenv/archive/refs/tags/${VERSION}.tar.gz"
-          echo "Homebrew formula template is in packaging/homebrew/bwenv.rb"
-          echo "Update VERSION to ${VERSION} and sha256 after release"
-          echo "TARBALL_URL=${TARBALL_URL}"
+          echo "## Release ${{ steps.version.outputs.VERSION }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh dist/*.tar.gz dist/*.zip 2>/dev/null | while read -r line; do
+            echo "- \`$(echo "$line" | awk '{print $NF}')\` ($(echo "$line" | awk '{print $5}'))" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Checksums" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat dist/checksums.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
