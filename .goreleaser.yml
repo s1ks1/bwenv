@@ -55,27 +55,28 @@ builds:
 # Package the binary with LICENSE and README into .tar.gz (Unix) or .zip (Windows).
 archives:
   - id: default
-    format: tar.gz
+    formats:
+      - tar.gz
 
     # Use .zip for Windows archives instead of .tar.gz.
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
     # Name template for the archive file.
     name_template: >-
       {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
 
+    # Flat archive — no top-level directory wrapper.
+    # This is required for Scoop compatibility (Scoop expects files at the
+    # root of the archive, not inside a subdirectory).
+    wrap_in_directory: false
+
     # Include these extra files in every archive.
     files:
       - LICENSE
       - README.md
-      # Windows .cmd wrapper so users can type "bwenv" instead of "bwenv.exe".
-      - src: packaging/windows/bwenv.cmd
-        dst: .
-        info:
-          mtime: "{{ .CommitDate }}"
-        strip_parent: true
 
 # -- Checksum file --
 # Generate a SHA256 checksums file for all release artifacts.
@@ -122,22 +123,29 @@ release:
     name: bwenv
 
   # Release name template shown on the GitHub Releases page.
-  name_template: "bwenv {{ .Version }}"
+  name_template: "bwenv v{{ .Version }}"
 
   # Prepend a custom header to the auto-generated changelog.
   header: |
     ## Installation
 
-    **Homebrew (macOS / Linux):**
+    **Homebrew (macOS):**
     ```bash
     brew tap s1ks1/bwenv
-    brew install bwenv
+    brew install --cask bwenv
     ```
 
     **Scoop (Windows):**
     ```powershell
     scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
     scoop install bwenv
+    ```
+
+    **Linux (DEB / RPM):**
+    ```bash
+    # Download the .deb or .rpm from the assets below, then:
+    sudo dpkg -i bwenv_{{ .Version }}_amd64.deb      # Debian/Ubuntu
+    sudo rpm -i bwenv_{{ .Version }}_amd64.rpm        # Fedora/RHEL
     ```
 
     **Go Install:**
@@ -174,34 +182,22 @@ release:
   # Make the latest release the default on the GitHub repo page.
   make_latest: true
 
-# -- Homebrew Tap --
-# Automatically update the Homebrew formula in the tap repository.
-brews:
+# -- Homebrew Cask --
+# Automatically update the Homebrew cask in the tap repository.
+# Casks install pre-built binaries (no compilation needed).
+homebrew_casks:
   - name: bwenv
 
-    # The tap repository where the formula will be pushed.
+    # The tap repository where the cask will be pushed.
     repository:
       owner: s1ks1
       name: homebrew-bwenv
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
 
-    # Formula metadata.
+    # Cask metadata.
     homepage: "https://github.com/s1ks1/bwenv"
     description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
-    license: "MIT"
-
-    # The directory within the tap repo where the formula is written.
-    directory: Formula
-
-    # Dependencies declared in the Homebrew formula.
-    dependencies:
-      - name: direnv
-        type: optional
-
-    # Installation instructions for the formula.
-    install: |
-      bin.install "bwenv"
 
     # Post-install message shown to the user.
     caveats: |
@@ -214,9 +210,13 @@ brews:
         zsh:  eval "$(direnv hook zsh)"
         fish: direnv hook fish | source
 
-    # Test block for `brew test bwenv`.
-    test: |
-      system "#{bin}/bwenv", "version"
+    # Remove macOS quarantine flag since the binary isn't signed/notarized.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bwenv"]
+          end
 
 # -- Scoop Manifest --
 # Automatically update the Scoop manifest in the bucket repository.
@@ -237,3 +237,34 @@ scoops:
 
     # Post-install message.
     post_install: ["Write-Host 'Run ''bwenv status'' to verify your setup.' -ForegroundColor Green"]
+
+# -- Linux packages (DEB / RPM) --
+# Generate .deb and .rpm packages for easy installation on Linux.
+nfpms:
+  - id: bwenv
+
+    package_name: bwenv
+    vendor: s1ks1
+    homepage: "https://github.com/s1ks1/bwenv"
+    maintainer: "s1ks1 <s1ks1@users.noreply.github.com>"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    license: MIT
+
+    # Output formats.
+    formats:
+      - deb
+      - rpm
+
+    # Package file name template.
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
+
+    # Install the binary to /usr/bin.
+    bindir: /usr/bin
+
+    # Recommended (not required) dependencies.
+    recommends:
+      - direnv
+
+    # Package section/group metadata.
+    section: utils
+    priority: optional

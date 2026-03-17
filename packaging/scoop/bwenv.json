@@ -5,12 +5,7 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/s1ks1/bwenv/releases/download/v2.0.0/bwenv-v2.0.0-windows-amd64.zip",
-      "hash": "PLACEHOLDER",
-      "bin": "bwenv.exe"
-    },
-    "arm64": {
-      "url": "https://github.com/s1ks1/bwenv/releases/download/v2.0.0/bwenv-v2.0.0-windows-arm64.zip",
+      "url": "https://github.com/s1ks1/bwenv/releases/download/v2.0.0/bwenv-2.0.0-windows-amd64.zip",
       "hash": "PLACEHOLDER",
       "bin": "bwenv.exe"
     }
@@ -19,17 +14,10 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/bwenv-v$version-windows-amd64.zip",
+        "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/bwenv-$version-windows-amd64.zip",
         "hash": {
           "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/checksums.txt",
-          "regex": "$sha256\\s+bwenv-v$version-windows-amd64\\.zip"
-        }
-      },
-      "arm64": {
-        "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/bwenv-v$version-windows-arm64.zip",
-        "hash": {
-          "url": "https://github.com/s1ks1/bwenv/releases/download/v$version/checksums.txt",
-          "regex": "$sha256\\s+bwenv-v$version-windows-arm64\\.zip"
+          "regex": "([a-fA-F0-9]{64})\\s+bwenv-$version-windows-amd64\\.zip"
         }
       }
     }

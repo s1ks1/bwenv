@@ -3,10 +3,11 @@
   <h1>🔐 bwenv</h1>
   <p><strong>Sync secrets from your password manager into your shell environment — beautifully.</strong></p>
   <p>
-    <a href="#-installation"><img src="https://img.shields.io/badge/install-homebrew%20%7C%20scoop%20%7C%20go-blue" alt="Install"/></a>
+    <a href="#-installation"><img src="https://img.shields.io/badge/install-homebrew%20%7C%20scoop%20%7C%20apt%20%7C%20go-blue" alt="Install"/></a>
     <a href="https://github.com/s1ks1/bwenv/releases"><img src="https://img.shields.io/github/v/release/s1ks1/bwenv?style=flat&color=green" alt="Release"/></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-purple" alt="License"/></a>
     <a href="https://github.com/s1ks1/bwenv/actions"><img src="https://img.shields.io/github/actions/workflow/status/s1ks1/bwenv/release.yml?label=build" alt="Build"/></a>
+    <a href="https://goreportcard.com/report/github.com/s1ks1/bwenv"><img src="https://goreportcard.com/badge/github.com/s1ks1/bwenv" alt="Go Report Card"/></a>
   </p>
 </div>
 
@@ -18,9 +19,11 @@
 
 Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lipgloss](https://github.com/charmbracelet/lipgloss) for a fast, beautiful, and truly cross-platform experience.
 
-### Why the rewrite?
+### Why bwenv?
 
-The original bwenv was built with Bash scripts, which worked — but had constant cross-platform issues between macOS, Linux, and Windows. This Go rewrite solves that by compiling to a **single static binary** for every platform, with zero runtime dependencies (beyond your password manager's CLI).
+Managing secrets across projects is painful. `.env` files get committed by accident, tokens expire and break your workflow, and switching between projects means manual copy-pasting. **bwenv** solves this by fetching secrets directly from your vault — live, per-directory, automatically.
+
+The original bwenv was built with Bash scripts, which worked — but had constant cross-platform issues. This Go rewrite compiles to a **single static binary** for every platform, with zero runtime dependencies (beyond your password manager's CLI).
 
 ---
 
@@ -34,9 +37,8 @@ The original bwenv was built with Bash scripts, which worked — but had constan
 - **⚙️ Configurable UI** — Toggle emoji, direnv output, export summaries via `bwenv config`
 - **🔑 Quick re-auth** — Session expired? `bwenv login` re-authenticates and updates your `.envrc` in one step
 - **🔒 Secure logout** — Lock vaults and terminate sessions with `bwenv logout`
-- **📊 Quick status** — See active sessions, .envrc info, dependencies, and preferences with `bwenv status`
 - **⚡ Zero runtime dependencies** — Just the Go binary + your password manager CLI + direnv
-- **📦 Easy installation** — Homebrew, Scoop, `go install`, or direct download
+- **📦 Easy installation** — Homebrew, Scoop, APT/DNF, `go install`, or direct download
 
 ---
 
@@ -54,11 +56,11 @@ The original bwenv was built with Bash scripts, which worked — but had constan
 
 ## 🛠️ Installation
 
-### Homebrew (macOS / Linux)
+### Homebrew (macOS)
 
 ```bash
 brew tap s1ks1/bwenv
-brew install bwenv
+brew install --cask bwenv
 ```
 
 ### Scoop (Windows)
@@ -68,10 +70,44 @@ scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
 scoop install bwenv
 ```
 
+### Linux (DEB — Debian / Ubuntu)
+
+Download the `.deb` package from the [latest release](https://github.com/s1ks1/bwenv/releases/latest):
+
+```bash
+# Download (replace VERSION and ARCH as needed)
+curl -LO https://github.com/s1ks1/bwenv/releases/latest/download/bwenv_VERSION_amd64.deb
+
+# Install
+sudo dpkg -i bwenv_*_amd64.deb
+```
+
+### Linux (RPM — Fedora / RHEL / openSUSE)
+
+```bash
+# Download (replace VERSION and ARCH as needed)
+curl -LO https://github.com/s1ks1/bwenv/releases/latest/download/bwenv_VERSION_amd64.rpm
+
+# Install
+sudo rpm -i bwenv_*_amd64.rpm
+```
+
 ### Go Install
 
 ```bash
 go install github.com/s1ks1/bwenv@latest
+```
+
+### Quick Install Script
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
 ```
 
 ### From Source
@@ -92,7 +128,7 @@ Download the latest binary for your platform from the [Releases](https://github.
 bwenv status
 ```
 
-> For detailed installation instructions on all platforms (macOS, Linux, Windows), including testing workflows for Bitwarden and 1Password, see [INSTALL.md](INSTALL.md).
+> For detailed installation instructions on all platforms, including testing workflows for Bitwarden and 1Password, see [INSTALL.md](INSTALL.md).
 
 ---
 
@@ -262,7 +298,7 @@ bwenv/
 │   │   ├── login_flow.go            # Re-authentication flow for expired sessions
 │   │   ├── config_flow.go           # Interactive config editor TUI
 │   │   ├── logout_flow.go           # Vault locking and session termination
-│   │   └── status_flow.go           # Status overview & diagnostics (merged)
+│   │   └── status_flow.go           # Status overview & diagnostics
 │   ├── envrc/
 │   │   └── envrc.go                 # .envrc generation, export, allow/disallow
 │   ├── config/
@@ -288,7 +324,7 @@ bwenv/
 ```bash
 make build        # Build for current platform → dist/bwenv
 make run          # Build and run
-make run ARGS="test"  # Build and run with arguments
+make run ARGS="status"  # Build and run with arguments
 ```
 
 ### Test
@@ -343,13 +379,13 @@ If you're upgrading from the original Bash-based bwenv:
    rm -f ~/.config/direnv/lib/bitwarden_folders.sh
 
    # If installed via Homebrew:
-   brew uninstall bwenv
+   brew uninstall --cask bwenv
    ```
 
 2. **Install the new version:**
    ```bash
    brew tap s1ks1/bwenv
-   brew install bwenv
+   brew install --cask bwenv
    ```
 
 3. **Re-initialize your projects:**

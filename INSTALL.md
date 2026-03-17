@@ -94,7 +94,7 @@ brew install --cask 1password-cli  # 1Password
 
 # 3. Install bwenv
 brew tap s1ks1/bwenv
-brew install bwenv
+brew install --cask bwenv
 ```
 
 ### Linux (Ubuntu/Debian)
@@ -615,7 +615,7 @@ This checks:
 ### macOS (Homebrew)
 
 ```bash
-brew uninstall bwenv
+brew uninstall --cask bwenv
 brew untap s1ks1/bwenv
 ```
 
