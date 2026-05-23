@@ -96,7 +96,7 @@ func RunLogoutFlow(version string) error {
 		warnTitle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(ColorWarning).
-			Render(E("⚠ ", "! ") + "Active session variables detected:")
+			Render(E("⚠️", "[!]") + " Active session variables detected:")
 
 		fmt.Printf("  %s\n\n", warnTitle)
 

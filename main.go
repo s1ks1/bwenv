@@ -164,7 +164,7 @@ func runAllow() {
 			} else if session != "" {
 				if updateErr := envrc.UpdateSession(session); updateErr != nil {
 					fmt.Fprintf(os.Stderr, "  %s %s\n",
-						ui.E("⚠ ", "!"),
+						ui.E("⚠️", "[!]"),
 						lipgloss.NewStyle().Foreground(ui.ColorWarning).Render(
 							fmt.Sprintf("Could not update .envrc session: %v", updateErr)))
 				}
@@ -211,9 +211,9 @@ func runDisallow() {
 	}
 	if len(varNames) > 0 {
 		fmt.Fprintf(os.Stderr, "  %s .envrc blocked — %d variable(s) cleared\n",
-			ui.E("⛔", "[-]"), len(varNames))
+			ui.E("⛔", "[blocked]"), len(varNames))
 	} else {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔", "[-]"))
+		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔", "[blocked]"))
 	}
 }
 
@@ -223,15 +223,21 @@ func runExamples() {
 	exampleStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#16A34A", Dark: "#4ADE80"})
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"})
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#0066CC", Dark: "#58A6FF"}).Bold(true)
+	exampleColumn := lipgloss.NewStyle().
+		Foreground(lipgloss.AdaptiveColor{Light: "#16A34A", Dark: "#4ADE80"}).
+		Width(18)
+	printExample := func(command string, comment string) {
+		fmt.Printf("    %s %s\n", exampleColumn.Render(command), mutedStyle.Render("# "+comment))
+	}
 
 	ui.PrintBanner(Version)
 	fmt.Println()
 
 	// ── Quick Start ────────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("🚀", ">>")+" Quick Start"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv init"), mutedStyle.Render("# Interactive setup — creates .envrc"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("cd ."), mutedStyle.Render("# Trigger direnv to load secrets"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("env | grep MY_VAR"), mutedStyle.Render("# Verify secrets are loaded"))
+	printExample("bwenv init", "Interactive setup — creates .envrc")
+	printExample("cd .", "Trigger direnv to load secrets")
+	printExample("env | grep MY_VAR", "Verify secrets are loaded")
 	fmt.Println()
 
 	// ── Bitwarden Workflow ─────────────────────────────────
@@ -258,17 +264,17 @@ func runExamples() {
 
 	// ── Direnv Control ─────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("⚡", ">>")+" Secret Management"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv allow"), mutedStyle.Render("# Approve .envrc + load secrets into shell"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv disallow"), mutedStyle.Render("# Block .envrc + clear variables from shell"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv remove"), mutedStyle.Render("# Delete .envrc + clear variables from shell"))
+	printExample("bwenv allow", "Approve .envrc + load secrets into shell")
+	printExample("bwenv disallow", "Block .envrc + clear variables from shell")
+	printExample("bwenv remove", "Delete .envrc + clear variables from shell")
 	fmt.Println()
 
 	// ── Day-to-Day ─────────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("📊", ">>")+" Day-to-Day"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv login"), mutedStyle.Render("# Re-authenticate when session expires"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv status"), mutedStyle.Render("# Full status + diagnostics"))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv config"), mutedStyle.Render("# Toggle emoji, direnv output, etc."))
-	fmt.Printf("    %s  %s\n", exampleStyle.Render("bwenv logout"), mutedStyle.Render("# Lock vaults, end sessions"))
+	printExample("bwenv login", "Re-authenticate when session expires")
+	printExample("bwenv status", "Full status + diagnostics")
+	printExample("bwenv config", "Toggle emoji, direnv output, etc.")
+	printExample("bwenv logout", "Lock vaults, end sessions")
 	fmt.Println()
 
 	// ── Advanced ───────────────────────────────────────────
@@ -303,13 +309,13 @@ func runRemove() {
 	if removed {
 		if len(varNames) > 0 {
 			fmt.Fprintf(os.Stderr, "  %s .envrc removed — %d variable(s) cleared\n",
-				ui.E("🗑 ", "[-]"), len(varNames))
+				ui.E("🗑️", "[removed]"), len(varNames))
 		} else {
-			fmt.Fprintf(os.Stderr, "  %s .envrc removed\n", ui.E("🗑 ", "[-]"))
+			fmt.Fprintf(os.Stderr, "  %s .envrc removed\n", ui.E("🗑️", "[removed]"))
 		}
 	} else {
 		fmt.Fprintf(os.Stderr, "  %s No .envrc found in current directory\n",
-			ui.E("⚠ ", "!"))
+			ui.E("⚠️", "[!]"))
 	}
 }
 
@@ -410,13 +416,13 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Secret Management:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("allow      "), descStyle.Render(ui.E("✅", "->")+` Approve .envrc and load secrets into shell`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("disallow   "), descStyle.Render(ui.E("⛔", "->")+` Block .envrc and clear variables from shell`))
-	fmt.Printf("    %s   %s\n", cmdStyle.Render("remove     "), descStyle.Render(ui.E("🗑 ", "->")+`  Delete .envrc and clear variables from shell`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("remove     "), descStyle.Render(ui.E("🗑️", "->")+` Delete .envrc and clear variables from shell`))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
-	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙️", "->")+` Configure preferences (emoji, direnv output, etc.)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("logout     "), descStyle.Render(ui.E("🔒", "->")+` Lock vaults and terminate active sessions`))
 	fmt.Println()
 

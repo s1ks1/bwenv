@@ -11,10 +11,6 @@
   </p>
 </div>
 
----
-
->**_NOTE_**: Version v2 will be a complete rewrite in a new language, the current solution is not the best for cross platform installations, it also creates many obstacles for development and is not the best looking. As a lover of beautiful terminal applications, I wanted bwenv to become an aesthetically pleasing application even though it is a very simple purpose. With that, the next version goes to Go + Bubble Tea + Lipgloss + Make. The old version still remains in releases with all its advantages and disadvantages and will not be further developed.
-
 ## 🚀 Overview
 
 **bwenv** is a cross-platform CLI tool that bridges your password manager and your shell environment using [direnv](https://direnv.net/). It lets you load secrets from **Bitwarden** or **1Password** directly into your project's environment variables — no manual copy-pasting, no secrets in `.env` files committed to git.
@@ -25,7 +21,12 @@ Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/
 
 Managing secrets across projects is painful. `.env` files get committed by accident, tokens expire and break your workflow, and switching between projects means manual copy-pasting. **bwenv** solves this by fetching secrets directly from your vault — live, per-directory, automatically.
 
-The original bwenv was built with Bash scripts, which worked — but had constant cross-platform issues. This Go rewrite compiles to a **single static binary** for every platform, with zero runtime dependencies (beyond your password manager's CLI).
+The original bwenv was built around Makefile, Bash, and PowerShell scripts.
+That version worked, but keeping the behavior consistent across macOS, Linux,
+and Windows became harder than it needed to be. The project was rewritten in Go
+for better cross-platform support, simpler installation, and a **single static
+binary** for every platform with zero runtime dependencies beyond your password
+manager CLI and direnv.
 
 ---
 
@@ -117,8 +118,12 @@ irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
 ```bash
 git clone https://github.com/s1ks1/bwenv.git
 cd bwenv
+make build
 make install
 ```
+
+For local development, use `make run ARGS="status"` to build and run the CLI
+without installing it globally.
 
 ### Direct Download
 
@@ -286,6 +291,8 @@ bwenv version
 bwenv/
 ├── main.go                          # Entry point and CLI routing
 ├── INSTALL.md                       # Detailed install & testing guide
+├── install.sh                       # macOS/Linux quick install script
+├── install.ps1                      # Windows quick install script
 ├── internal/
 │   ├── provider/
 │   │   ├── provider.go              # Provider interface and registry
@@ -303,15 +310,14 @@ bwenv/
 │   │   └── status_flow.go           # Status overview & diagnostics
 │   ├── envrc/
 │   │   └── envrc.go                 # .envrc generation, export, allow/disallow
-│   ├── config/
-│   │   └── config.go                # Persistent user preferences (~/.config/bwenv/)
-│   └── check/
-│       └── check.go                 # Standalone diagnostics (library)
+│   └── config/
+│       └── config.go                # Persistent user preferences (~/.config/bwenv/)
 ├── Makefile                         # Build, install, test, release targets
 ├── .goreleaser.yml                  # GoReleaser config for cross-platform releases
-├── .github/workflows/release.yml    # GitHub Actions CI/CD
+├── .github/workflows/               # GitHub Actions workflows
 ├── packaging/
 │   ├── homebrew/bwenv.rb            # Homebrew formula template
+│   ├── windows/bwenv.cmd            # Windows command shim
 │   └── scoop/bwenv.json             # Scoop manifest template
 ├── LICENSE
 └── README.md
@@ -335,6 +341,27 @@ make run ARGS="status"  # Build and run with arguments
 make test         # Run all Go tests
 make lint         # Run go vet + staticcheck
 make fmt          # Format all Go source files
+make tidy         # Clean up go.mod/go.sum
+```
+
+### Git Workflow
+
+`main` is the stable branch and release source. Work on feature branches, open a
+pull request, and merge the branch back into `main` when checks pass. This keeps
+the history easy to follow and makes a fresh clone straightforward:
+
+```bash
+git clone https://github.com/s1ks1/bwenv.git
+cd bwenv
+git switch main
+make build
+```
+
+For local pulls, prefer merge-based updates:
+
+```bash
+git config pull.rebase false
+git pull origin main
 ```
 
 ### Release

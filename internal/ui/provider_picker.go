@@ -188,14 +188,14 @@ func (m ProviderPickerModel) Cancelled() bool {
 func availableBadge() string {
 	return lipgloss.NewStyle().
 		Foreground(ColorSuccess).
-		Render("✓ installed")
+		Render(E("✅", "[OK]") + " installed")
 }
 
 // unavailableBadge returns a small red "not installed" tag with the CLI command name.
 func unavailableBadge(cliCmd string) string {
 	return lipgloss.NewStyle().
 		Foreground(ColorError).
-		Render(fmt.Sprintf("✗ '%s' not found", cliCmd))
+		Render(fmt.Sprintf("%s '%s' not found", E("❌", "[X]"), cliCmd))
 }
 
 // helpBar formats a row of key binding hints for the bottom of the TUI.

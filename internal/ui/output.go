@@ -21,7 +21,7 @@ import (
 // otherwise returns the plain-text fallback. This is the single point of
 // control for all emoji display throughout the application.
 //
-// Usage: E("🔐", "[lock]") → "🔐" or "[lock]" depending on config.
+// Usage: E("🔐", "[lock]") -> "🔐" or "[lock]" depending on config.
 func E(emoji string, fallback string) string {
 	return config.Emoji(emoji, fallback)
 }
@@ -66,7 +66,7 @@ func PrintSuccess(message string) {
 // PrintError prints an error message with a red cross prefix and detail line.
 // The label provides context about what failed, and err gives the details.
 func PrintError(label string, err error) {
-	header := ErrorText.Render(E("✗", "X") + " " + label)
+	header := ErrorText.Render(E("❌", "[X]") + " " + label)
 	detail := lipgloss.NewStyle().Foreground(ColorMuted).Render(err.Error())
 	fmt.Fprintf(os.Stderr, "\n  %s\n    %s\n\n", header, detail)
 }

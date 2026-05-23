@@ -70,23 +70,24 @@ var (
 )
 
 // -- Status indicators --
-// These are prefixed icons for status messages (checkmarks, crosses, etc.).
+// These are prefixed icons for status messages. Emoji are used by default;
+// plain fallbacks are used when ShowEmoji is disabled.
 
 var (
-	// CheckMark is a styled green checkmark for success indicators.
-	CheckMark = SuccessText.Render("✓")
+	// CheckMark is a styled green success indicator.
+	CheckMark = SuccessText.Render(E("✅", "[OK]"))
 
-	// CrossMark is a styled red cross for failure indicators.
-	CrossMark = ErrorText.Render("✗")
+	// CrossMark is a styled red failure indicator.
+	CrossMark = ErrorText.Render(E("❌", "[X]"))
 
 	// WarningMark is a styled amber warning indicator.
-	WarningMark = WarningText.Render("!")
+	WarningMark = WarningText.Render(E("⚠️", "[!]"))
 
 	// InfoMark is a styled blue info indicator.
-	InfoMark = lipgloss.NewStyle().Foreground(ColorPrimary).Render("●")
+	InfoMark = lipgloss.NewStyle().Foreground(ColorPrimary).Render(E("ℹ️", "[i]"))
 
 	// Arrow is a styled indicator for the currently selected item.
-	Arrow = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render("▸")
+	Arrow = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render(E("👉", ">"))
 )
 
 // -- Box and container styles --
