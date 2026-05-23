@@ -416,7 +416,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
-	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙️ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("logout     "), descStyle.Render(ui.E("🔒", "->")+` Lock vaults and terminate active sessions`))
 	fmt.Println()
 
