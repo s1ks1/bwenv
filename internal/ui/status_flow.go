@@ -107,7 +107,7 @@ func RunStatusFlow(version string) error {
 
 		if availableCount == 0 {
 			fmt.Println()
-			PrintWarning(E("⚠ ", "!") + " No providers available — install at least one CLI tool")
+			PrintWarning(E("⚠️", "[!]") + " No providers available — install at least one CLI tool")
 		} else if activeCount == 0 {
 			fmt.Println()
 			PrintInfo("No active sessions — run 'bwenv init' to authenticate")
@@ -155,7 +155,7 @@ func RunStatusFlow(version string) error {
 	fmt.Println()
 
 	// ── Section: Config preferences ──────────────────────────────────────
-	printStatusSection(E("⚙️", "[>]") + "  Preferences")
+	printStatusSection(E("⚙️", "[>]") + " Preferences")
 
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {

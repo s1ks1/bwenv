@@ -7,7 +7,7 @@
 //   - Previews which variables will be loaded (showing names, not values)
 //   - Automatically runs "direnv allow" so the user doesn't see the scary
 //     "direnv: error .envrc is blocked" message
-//   - Shows a beautiful final summary with emojis (configurable)
+//   - Shows a beautiful final summary with emoji (configurable)
 //   - Respects user config for direnv output silencing
 package ui
 
@@ -255,7 +255,7 @@ func printVariablePreview(varNames []string) {
 	count := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorSuccess).
-		Render(fmt.Sprintf("%s Found %d variable(s)", E("✓", "[OK]"), len(varNames)))
+		Render(fmt.Sprintf("%s Found %d variable(s)", E("✅", "[OK]"), len(varNames)))
 
 	fmt.Printf("  %s\n", count)
 
@@ -373,7 +373,7 @@ func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd strin
 	if _, err := exec.LookPath("direnv"); err != nil {
 		fmt.Println()
 		PrintBoxWarning(
-			E("⚠ ", "! ")+" direnv is not installed",
+			E("⚠️", "[!]")+" direnv is not installed",
 			"",
 			"   Install: https://direnv.net/",
 		)

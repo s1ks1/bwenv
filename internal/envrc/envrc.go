@@ -1015,7 +1015,7 @@ func Remove() (bool, []string, error) {
 //	╭──────────────────────────────────────────╮
 //	│  Bitwarden / MySecrets                   │
 //	│                                          │
-//	│  ✓ 3 variable(s) loaded                  │
+//	│  ✅ 3 variable(s) loaded                 │
 //	│    🔑 DB_USERNAME                         │
 //	│    🔑 DB_PASSWORD                         │
 //	│    🔑 API_TOKEN                           │
@@ -1032,11 +1032,11 @@ func printExportSummary(providerName string, folderName string, varNames []strin
 
 	if len(varNames) == 0 {
 		// No variables found — show a warning.
-		warningLine := summaryError.Render(emojiStr("⚠ ", "!") + " No variables found in this folder")
+		warningLine := summaryError.Render(emojiStr("⚠️", "[!]") + " No variables found in this folder")
 		lines = append(lines, warningLine)
 	} else {
 		// Success line with count.
-		countLine := summarySuccess.Render(fmt.Sprintf("%s %d variable(s) loaded", emojiStr("✓", "[OK]"), len(varNames)))
+		countLine := summarySuccess.Render(fmt.Sprintf("%s %d variable(s) loaded", emojiStr("✅", "[OK]"), len(varNames)))
 		lines = append(lines, countLine)
 
 		// List each variable name with a key icon.
@@ -1076,7 +1076,7 @@ func printExportSummary(providerName string, folderName string, varNames []strin
 func printExportError(label string, err error) {
 	var lines []string
 
-	errorLabel := summaryError.Render(emojiStr("✗", "X") + " " + label)
+	errorLabel := summaryError.Render(emojiStr("❌", "[X]") + " " + label)
 	lines = append(lines, errorLabel)
 	lines = append(lines, "")
 

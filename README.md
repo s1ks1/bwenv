@@ -21,7 +21,12 @@ Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/
 
 Managing secrets across projects is painful. `.env` files get committed by accident, tokens expire and break your workflow, and switching between projects means manual copy-pasting. **bwenv** solves this by fetching secrets directly from your vault — live, per-directory, automatically.
 
-The original bwenv was built with Bash scripts, which worked — but had constant cross-platform issues. This Go rewrite compiles to a **single static binary** for every platform, with zero runtime dependencies (beyond your password manager's CLI).
+The original bwenv was built around Makefile, Bash, and PowerShell scripts.
+That version worked, but keeping the behavior consistent across macOS, Linux,
+and Windows became harder than it needed to be. The project was rewritten in Go
+for better cross-platform support, simpler installation, and a **single static
+binary** for every platform with zero runtime dependencies beyond your password
+manager CLI and direnv.
 
 ---
 
