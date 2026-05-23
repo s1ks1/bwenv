@@ -155,7 +155,7 @@ func RunStatusFlow(version string) error {
 	fmt.Println()
 
 	// ── Section: Config preferences ──────────────────────────────────────
-	printStatusSection(E("⚙", "[>]") + "  Preferences")
+	printStatusSection(E("⚙️", "[>]") + "  Preferences")
 
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
