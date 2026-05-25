@@ -182,6 +182,47 @@ release:
   # Make the latest release the default on the GitHub repo page.
   make_latest: true
 
+# -- Homebrew Cask --
+# Automatically update the Homebrew cask in the tap repository.
+homebrew_casks:
+  - name: bwenv
+    repository:
+      owner: s1ks1
+      name: homebrew-bwenv
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/s1ks1/bwenv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    caveats: |
+      To get started, run:
+
+        bwenv status
+
+      Make sure direnv is hooked into your shell:
+        bash: eval "$(direnv hook bash)"
+        zsh:  eval "$(direnv hook zsh)"
+        fish: direnv hook fish | source
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bwenv"]
+          end
+
+# -- Scoop Manifest --
+# Automatically update the Scoop manifest in the bucket repository.
+scoops:
+  - name: bwenv
+    repository:
+      owner: s1ks1
+      name: scoop-bwenv
+      branch: main
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    homepage: "https://github.com/s1ks1/bwenv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    license: MIT
+    post_install: ["Write-Host 'Run ''bwenv status'' to verify your setup.' -ForegroundColor Green"]
+
 # -- Linux packages (DEB / RPM) --
 # Generate .deb and .rpm packages for easy installation on Linux.
 nfpms:
