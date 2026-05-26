@@ -13,6 +13,25 @@ import (
 
 const maxVisibleSecrets = 12
 
+// shortID returns the last 6 characters of an item ID for disambiguation.
+func shortID(id string) string {
+	if len(id) <= 6 {
+		return id
+	}
+	return id[len(id)-6:]
+}
+
+// selectedCount returns the number of selected items among the filtered list.
+func (m SecretPickerModel) selectedCount() int {
+	count := 0
+	for _, item := range m.filtered {
+		if m.selected[item.ID] {
+			count++
+		}
+	}
+	return count
+}
+
 type SecretPickerModel struct {
 	allItems    []provider.SecretItem
 	filtered    []provider.SecretItem
@@ -220,7 +239,7 @@ func (m SecretPickerModel) View() string {
 	b.WriteString(title)
 	b.WriteString("\n")
 
-	count := len(m.selected)
+	count := m.selectedCount()
 	countStr := "none selected"
 	if count > 0 {
 		countStr = fmt.Sprintf("%d selected", count)
@@ -282,12 +301,18 @@ func (m SecretPickerModel) View() string {
 					Bold(true).
 					Foreground(ColorPrimary).
 					Render(item.Name)
-				b.WriteString(fmt.Sprintf("  %s %s %s", Arrow, checkbox, name))
+				itemID := lipgloss.NewStyle().
+					Foreground(ColorMuted).
+					Render(fmt.Sprintf(" …%s", shortID(item.ID)))
+				b.WriteString(fmt.Sprintf("  %s %s %s%s", Arrow, checkbox, name, itemID))
 			} else {
 				name := lipgloss.NewStyle().
 					Foreground(lipgloss.AdaptiveColor{Light: "#374151", Dark: "#D1D5DB"}).
 					Render(item.Name)
-				b.WriteString(fmt.Sprintf("    %s %s", checkbox, name))
+				itemID := lipgloss.NewStyle().
+					Foreground(lipgloss.AdaptiveColor{Light: "#9CA3AF", Dark: "#6B7280"}).
+					Render(fmt.Sprintf(" …%s", shortID(item.ID)))
+				b.WriteString(fmt.Sprintf("    %s %s%s", checkbox, name, itemID))
 			}
 
 			b.WriteString("\n")
