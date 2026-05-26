@@ -108,6 +108,16 @@ jobs:
             git push origin "$VERSION"
           fi
 
+      # Clean up any existing release with the same tag to avoid
+      # "already_exists" upload errors when re-running a failed workflow.
+      # Only delete the release, NOT the tag — GoReleaser needs it for changelog.
+      - name: Delete existing release (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          gh release delete "$VERSION" --yes 2>/dev/null || true
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

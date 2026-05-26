@@ -184,22 +184,15 @@ release:
 
 # -- Homebrew Cask --
 # Automatically update the Homebrew cask in the tap repository.
-# Casks install pre-built binaries (no compilation needed).
 homebrew_casks:
   - name: bwenv
-
-    # The tap repository where the cask will be pushed.
     repository:
       owner: s1ks1
       name: homebrew-bwenv
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-
-    # Cask metadata.
     homepage: "https://github.com/s1ks1/bwenv"
     description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
-
-    # Post-install message shown to the user.
     caveats: |
       To get started, run:
 
@@ -209,8 +202,6 @@ homebrew_casks:
         bash: eval "$(direnv hook bash)"
         zsh:  eval "$(direnv hook zsh)"
         fish: direnv hook fish | source
-
-    # Remove macOS quarantine flag since the binary isn't signed/notarized.
     hooks:
       post:
         install: |
@@ -222,20 +213,14 @@ homebrew_casks:
 # Automatically update the Scoop manifest in the bucket repository.
 scoops:
   - name: bwenv
-
-    # The bucket repository where the manifest will be pushed.
     repository:
       owner: s1ks1
       name: scoop-bwenv
       branch: main
       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
-
-    # Manifest metadata.
     homepage: "https://github.com/s1ks1/bwenv"
     description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
     license: MIT
-
-    # Post-install message.
     post_install: ["Write-Host 'Run ''bwenv status'' to verify your setup.' -ForegroundColor Green"]
 
 # -- Linux packages (DEB / RPM) --
