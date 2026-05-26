@@ -211,9 +211,9 @@ func runDisallow() {
 	}
 	if len(varNames) > 0 {
 		fmt.Fprintf(os.Stderr, "  %s .envrc blocked — %d variable(s) cleared\n",
-			ui.E("⛔", "[blocked]"), len(varNames))
+			ui.E("⛔\ufe0f", "[blocked]"), len(varNames))
 	} else {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔", "[blocked]"))
+		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔\ufe0f", "[blocked]"))
 	}
 }
 
@@ -415,14 +415,14 @@ func printUsage() {
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Secret Management:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("allow      "), descStyle.Render(ui.E("✅", "->")+` Approve .envrc and load secrets into shell`))
-	fmt.Printf("    %s   %s\n", cmdStyle.Render("disallow   "), descStyle.Render(ui.E("⛔", "->")+` Block .envrc and clear variables from shell`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("disallow   "), descStyle.Render(ui.E("⛔\ufe0f", "->")+` Block .envrc and clear variables from shell`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("remove     "), descStyle.Render(ui.E("🗑️", "->")+` Delete .envrc and clear variables from shell`))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
-	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙️", "->")+` Configure preferences (emoji, direnv output, etc.)`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙️ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("logout     "), descStyle.Render(ui.E("🔒", "->")+` Lock vaults and terminate active sessions`))
 	fmt.Println()
 
