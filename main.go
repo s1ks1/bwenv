@@ -211,9 +211,9 @@ func runDisallow() {
 	}
 	if len(varNames) > 0 {
 		fmt.Fprintf(os.Stderr, "  %s .envrc blocked — %d variable(s) cleared\n",
-			ui.E("⛔", "[-]"), len(varNames))
+			ui.E("⛔\ufe0f", "[-]"), len(varNames))
 	} else {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔", "[-]"))
+		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔\ufe0f", "[-]"))
 	}
 }
 
