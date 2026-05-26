@@ -37,10 +37,8 @@ import (
 //
 // Returns an error if any step fails or if the user cancels.
 func RunInitFlow(version string) error {
-	// Total number of steps shown to the user (for the [N/M] progress indicator).
-	const totalSteps = 6
+	const totalSteps = 7
 
-	// -- Step 0: Show the welcome banner --
 	PrintBanner(version)
 
 	// -- Step 1: Gather all registered providers --
@@ -49,7 +47,6 @@ func RunInitFlow(version string) error {
 		return fmt.Errorf("no secret providers are registered — this is a bug in bwenv")
 	}
 
-	// Check if at least one provider's CLI is available on this system.
 	available := provider.Available()
 	if len(available) == 0 {
 		printNoProvidersHelp(allProviders)
@@ -57,7 +54,6 @@ func RunInitFlow(version string) error {
 	}
 
 	// -- Step 2: Provider selection --
-	// If only one provider is available, skip the picker and use it directly.
 	var chosenProvider provider.Provider
 
 	if len(available) == 1 {
@@ -65,7 +61,6 @@ func RunInitFlow(version string) error {
 		PrintStep(1, totalSteps, fmt.Sprintf("%s Using %s (only available provider)", E("🔑", "[>]"), formatProviderName(chosenProvider.Name())))
 		fmt.Println()
 	} else {
-		// Launch the interactive provider picker TUI.
 		PrintStep(1, totalSteps, E("🔑", "[>]")+" Select a secret provider")
 		fmt.Println()
 
@@ -146,27 +141,81 @@ func RunInitFlow(version string) error {
 	PrintSuccess(fmt.Sprintf("Selected: %s", chosenFolder.Name))
 	fmt.Println()
 
-	// -- Step 6: Preview secrets (show variable names, not values) --
-	PrintStep(5, totalSteps, E("🔍", "[>]")+" Scanning secrets in folder...")
+	// -- Step 6: Pick specific items within the folder --
+	PrintStep(5, totalSteps, E("🎯", "[>]")+" Pick individual items (space to toggle, a = all)")
+	fmt.Println()
 
-	varNames, err := envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
+	var itemIDs []string
+	var itemNames []string
+
+	items, listErr := chosenProvider.ListItems(session, *chosenFolder)
+	if listErr != nil {
+		PrintWarning(fmt.Sprintf("Could not list items: %v", listErr))
+		PrintInfo("All items in the folder will be loaded instead.")
+		fmt.Println()
+	} else if len(items) == 0 {
+		PrintInfo("No items found in this folder.")
+		fmt.Println()
+	} else if len(items) == 1 {
+		itemIDs = append(itemIDs, items[0].ID)
+		itemNames = append(itemNames, items[0].Name)
+		PrintSuccess(fmt.Sprintf("Using 1 item: %s", items[0].Name))
+		fmt.Println()
+	} else {
+		secretPicker := NewSecretPicker(items, chosenProvider.Name(), chosenFolder.Name)
+		secretProgram := tea.NewProgram(secretPicker)
+
+		finalSecretModel, err := secretProgram.Run()
+		if err != nil {
+			PrintWarning(fmt.Sprintf("Item picker failed: %v", err))
+			PrintInfo("All items in the folder will be loaded instead.")
+			fmt.Println()
+		} else {
+			secretResult := finalSecretModel.(SecretPickerModel)
+			if secretResult.Cancelled() {
+				printCancelled()
+				os.Exit(0)
+			}
+
+			chosenItems := secretResult.Selected()
+			if len(chosenItems) == 0 {
+				PrintWarning("No items selected — all items in the folder will be loaded.")
+				fmt.Println()
+			} else {
+				for _, item := range chosenItems {
+					itemIDs = append(itemIDs, item.ID)
+					itemNames = append(itemNames, item.Name)
+				}
+				PrintSuccess(fmt.Sprintf("Selected %d item(s)", len(chosenItems)))
+				fmt.Println()
+			}
+		}
+	}
+
+	// -- Step 7: Preview secrets (show variable names, not values) --
+	PrintStep(6, totalSteps, E("🔍", "[>]")+" Scanning secrets...")
+
+	var varNames []string
+	if len(itemIDs) > 0 {
+		varNames, err = envrc.PreviewSecretsByIDs(chosenProvider, session, itemIDs)
+	} else {
+		varNames, err = envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
+	}
 	if err != nil {
-		// Non-fatal — we can still generate the .envrc, but warn the user.
 		PrintWarning(fmt.Sprintf("Could not preview secrets: %v", err))
 		PrintInfo("The .envrc will still be generated — secrets will load when direnv runs it.")
 		fmt.Println()
 	} else if len(varNames) == 0 {
-		PrintWarning("No secrets found in this folder")
+		PrintWarning("No secrets found")
 		PrintInfo("Make sure your vault items have custom fields with names and values.")
 		fmt.Println()
 	} else {
-		// Show a nice preview of which variables will be loaded.
 		printVariablePreview(varNames)
 		fmt.Println()
 	}
 
-	// -- Step 7: Generate the .envrc file --
-	PrintStep(6, totalSteps, E("📝", "[>]")+" Generating .envrc...")
+	// -- Step 8: Generate the .envrc file --
+	PrintStep(7, totalSteps, E("📝", "[>]")+" Generating .envrc...")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -175,18 +224,18 @@ func RunInitFlow(version string) error {
 
 	envrcPath := filepath.Join(cwd, ".envrc")
 
-	// Check if .envrc already exists and warn the user.
 	if _, statErr := os.Stat(envrcPath); statErr == nil {
 		PrintWarning("Existing .envrc will be overwritten")
 	}
 
-	// Build and write the .envrc file.
 	err = envrc.Generate(envrc.Config{
 		ProviderSlug: chosenProvider.Slug(),
 		FolderName:   chosenFolder.Name,
 		FolderID:     chosenFolder.ID,
 		Session:      session,
 		Version:      version,
+		ItemIDs:      itemIDs,
+		ItemNames:    itemNames,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to write .envrc: %w", err)
@@ -238,7 +287,7 @@ func RunInitFlow(version string) error {
 
 	// -- Done! Show the final success summary --
 	fmt.Println()
-	printSuccessSummary(chosenProvider, chosenFolder, cwd, varNames, rcModified, rcFile)
+	printSuccessSummary(chosenProvider, chosenFolder, itemNames, cwd, varNames, rcModified, rcFile)
 
 	return nil
 }
@@ -327,16 +376,28 @@ func printNoProvidersHelp(allProviders []provider.Provider) {
 
 // printSuccessSummary displays the final success box after .envrc generation.
 // Designed to be concise — one box with all info, clear next step.
-func printSuccessSummary(p provider.Provider, folder *provider.Folder, cwd string, varNames []string, rcModified bool, rcFile string) {
-	// Build a single summary box with everything the user needs.
+func printSuccessSummary(p provider.Provider, folder *provider.Folder, itemNames []string, cwd string, varNames []string, rcModified bool, rcFile string) {
 	summaryLines := []string{
 		E("✅", "[OK]") + " Setup complete!",
 		"",
 		fmt.Sprintf("  Provider:   %s", p.Name()),
 		fmt.Sprintf("  Folder:     %s", folder.Name),
+	}
+
+	if len(itemNames) > 0 {
+		if len(itemNames) <= 3 {
+			summaryLines = append(summaryLines, fmt.Sprintf("  Items:      %s", strings.Join(itemNames, ", ")))
+		} else {
+			summaryLines = append(summaryLines, fmt.Sprintf("  Items:      %d selected", len(itemNames)))
+		}
+	} else {
+		summaryLines = append(summaryLines, "  Items:      All")
+	}
+
+	summaryLines = append(summaryLines,
 		fmt.Sprintf("  Variables:  %d secret(s)", len(varNames)),
 		fmt.Sprintf("  Location:   %s/.envrc", ShortenHomePath(cwd)),
-	}
+	)
 
 	PrintBoxSuccess(summaryLines...)
 

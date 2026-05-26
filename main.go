@@ -120,17 +120,17 @@ func runInit() {
 // This is designed to be called from within an .envrc file:
 //
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder)"
+//	eval "$(bwenv export --provider bitwarden --folder MyFolder --items 'id1,id2')"
 func runExport(args []string) {
-	provider, folder := parseExportFlags(args)
+	provider, folder, itemIDs := parseExportFlags(args)
 
 	if provider == "" || folder == "" {
 		ui.PrintError("Missing flags", fmt.Errorf("both --provider and --folder are required"))
-		fmt.Fprintln(os.Stderr, "Usage: bwenv export --provider <bitwarden|1password> --folder <name>")
+		fmt.Fprintln(os.Stderr, "Usage: bwenv export --provider <bitwarden|1password> --folder <name> [--items 'id1,id2,...']")
 		os.Exit(1)
 	}
 
-	if err := envrc.Export(provider, folder); err != nil {
-		// Write errors to stderr so they don't pollute the eval output.
+	if err := envrc.Export(provider, folder, itemIDs); err != nil {
 		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
 		os.Exit(1)
 	}
@@ -154,7 +154,7 @@ func runAllow() {
 		// Before approving, re-authenticate and update .envrc with a fresh
 		// session token. Otherwise direnv re-fires with the stale BW_SESSION
 		// from .envrc and "bwenv export" fails with "session expired".
-		prov, folder, _ := envrc.ParseEnvrcConfig()
+		prov, folder, _, _ := envrc.ParseEnvrcConfig()
 		if prov != "" && folder != "" {
 			session, err := envrc.ReauthenticateProvider(prov)
 			if err != nil {
@@ -373,26 +373,41 @@ func runStatus() {
 	}
 }
 
-// parseExportFlags extracts --provider and --folder values from the argument list.
-func parseExportFlags(args []string) (provider, folder string) {
+// parseExportFlags extracts --provider, --folder, and --items values from the argument list.
+func parseExportFlags(args []string) (provider, folder string, itemIDs []string) {
 	for i := 0; i < len(args); i++ {
 		switch {
-		// Handle --provider=value or --provider value
 		case args[i] == "--provider" && i+1 < len(args):
 			i++
 			provider = args[i]
 		case strings.HasPrefix(args[i], "--provider="):
 			provider = strings.TrimPrefix(args[i], "--provider=")
 
-		// Handle --folder=value or --folder value
 		case args[i] == "--folder" && i+1 < len(args):
 			i++
 			folder = args[i]
 		case strings.HasPrefix(args[i], "--folder="):
 			folder = strings.TrimPrefix(args[i], "--folder=")
+
+		case args[i] == "--items" && i+1 < len(args):
+			i++
+			for _, id := range strings.Split(args[i], ",") {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					itemIDs = append(itemIDs, id)
+				}
+			}
+		case strings.HasPrefix(args[i], "--items="):
+			itemsStr := strings.TrimPrefix(args[i], "--items=")
+			for _, id := range strings.Split(itemsStr, ",") {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					itemIDs = append(itemIDs, id)
+				}
+			}
 		}
 	}
-	return provider, folder
+	return provider, folder, itemIDs
 }
 
 // printUsage displays the help text with styled output.
@@ -434,6 +449,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Export flags:"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--provider "), descStyle.Render("Secret provider: bitwarden, 1password"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder   "), descStyle.Render("Folder or vault name to load secrets from"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--items    "), descStyle.Render("Comma-separated item IDs (optional — load only specific items)"))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Quick Start:"))

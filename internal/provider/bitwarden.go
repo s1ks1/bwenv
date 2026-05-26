@@ -166,6 +166,7 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 
 // bwItem is the JSON shape for a Bitwarden vault item.
 type bwItem struct {
+	ID     string    `json:"id"`
 	Name   string    `json:"name"`
 	Fields []bwField `json:"fields"`
 }
@@ -181,49 +182,14 @@ type bwField struct {
 // and returns them as key-value Secret pairs. Each field becomes one
 // environment variable — the field name is the key, the field value is the value.
 func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) {
-	cmd := exec.Command("bw", "list", "items", "--folderid", folder.ID, "--session", session)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		stderrStr := strings.TrimSpace(stderr.String())
-		if stderrStr != "" {
-			return nil, fmt.Errorf("failed to list items in folder %q: %s", folder.Name, stderrStr)
-		}
-		return nil, fmt.Errorf("failed to list items in folder %q: %w", folder.Name, err)
-	}
-
-	out := bytes.TrimSpace(stdout.Bytes())
-
-	// Guard against empty output.
-	if len(out) == 0 {
-		return nil, fmt.Errorf(
-			"Bitwarden CLI returned empty output for folder %q.\n"+
-				"    Your session may have expired. Run 'bwenv login' to re-authenticate",
-			folder.Name)
-	}
-
-	// Verify the output starts with '['.
-	if out[0] != '[' {
-		preview := string(out)
-		if len(preview) > 200 {
-			preview = preview[:200] + "..."
-		}
-		return nil, fmt.Errorf(
-			"Bitwarden CLI returned unexpected output for folder %q (expected JSON array):\n    %s",
-			folder.Name, preview)
-	}
-
-	var items []bwItem
-	if err := json.Unmarshal(out, &items); err != nil {
-		return nil, fmt.Errorf("failed to parse items: %w\n    Raw output: %s", err, truncateOutput(out))
+	items, err := b.listItems(session, folder.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	var secrets []Secret
 	for _, item := range items {
 		for _, field := range item.Fields {
-			// Only include fields that have both a name and a value.
 			if field.Name == "" {
 				continue
 			}
@@ -235,6 +201,110 @@ func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) 
 	}
 
 	return secrets, nil
+}
+
+// ListItems returns all items in the given folder. Each item is a
+// single vault entry that may contain multiple custom fields.
+func (b *Bitwarden) ListItems(session string, folder Folder) ([]SecretItem, error) {
+	items, err := b.listItems(session, folder.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	secretItems := make([]SecretItem, 0, len(items))
+	for _, item := range items {
+		secretItems = append(secretItems, SecretItem{
+			ID:   item.ID,
+			Name: item.Name,
+		})
+	}
+
+	return secretItems, nil
+}
+
+// GetSecretsByItemIDs retrieves custom fields only from the specified items.
+func (b *Bitwarden) GetSecretsByItemIDs(session string, itemIDs []string) ([]Secret, error) {
+	var secrets []Secret
+
+	for _, id := range itemIDs {
+		cmd := exec.Command("bw", "get", "item", id, "--session", session)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			stderrStr := strings.TrimSpace(stderr.String())
+			if stderrStr != "" {
+				return nil, fmt.Errorf("failed to get item %q: %s", id, stderrStr)
+			}
+			return nil, fmt.Errorf("failed to get item %q: %w", id, err)
+		}
+
+		out := bytes.TrimSpace(stdout.Bytes())
+		if len(out) == 0 {
+			continue
+		}
+
+		var item bwItem
+		if err := json.Unmarshal(out, &item); err != nil {
+			return nil, fmt.Errorf("failed to parse item %q: %w\n    Raw: %s", id, err, truncateOutput(out))
+		}
+
+		for _, field := range item.Fields {
+			if field.Name == "" {
+				continue
+			}
+			secrets = append(secrets, Secret{
+				Key:   field.Name,
+				Value: field.Value,
+			})
+		}
+	}
+
+	return secrets, nil
+}
+
+// listItems is the shared implementation that parses the raw bwItem list
+// from "bw list items". Used by both GetSecrets and ListItems.
+func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error) {
+	cmd := exec.Command("bw", "list", "items", "--folderid", folderID, "--session", session)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		stderrStr := strings.TrimSpace(stderr.String())
+		if stderrStr != "" {
+			return nil, fmt.Errorf("failed to list items in folder %q: %s", folderID, stderrStr)
+		}
+		return nil, fmt.Errorf("failed to list items in folder %q: %w", folderID, err)
+	}
+
+	out := bytes.TrimSpace(stdout.Bytes())
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf(
+			"Bitwarden CLI returned empty output for folder %q.\n"+
+				"    Your session may have expired. Run 'bwenv login' to re-authenticate",
+			folderID)
+	}
+
+	if out[0] != '[' {
+		preview := string(out)
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return nil, fmt.Errorf(
+			"Bitwarden CLI returned unexpected output for folder %q (expected JSON array):\n    %s",
+			folderID, preview)
+	}
+
+	var items []bwItem
+	if err := json.Unmarshal(out, &items); err != nil {
+		return nil, fmt.Errorf("failed to parse items: %w\n    Raw output: %s", err, truncateOutput(out))
+	}
+
+	return items, nil
 }
 
 // Lock locks the Bitwarden vault, invalidating the current session.

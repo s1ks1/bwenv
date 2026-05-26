@@ -57,6 +57,9 @@ func RunStatusFlow(version string) error {
 		if envrcStatus.folder != "" {
 			detail += fmt.Sprintf(" | folder: %s", envrcStatus.folder)
 		}
+		if len(envrcStatus.itemIDs) > 0 {
+			detail += fmt.Sprintf(" | items: %d selected", len(envrcStatus.itemIDs))
+		}
 		PrintStatusLine(true, ".envrc", detail)
 	}
 
@@ -205,8 +208,9 @@ const (
 // envrcInfo holds information parsed from the .envrc file.
 type envrcInfo struct {
 	state    envrcState
-	provider string // Provider slug extracted from the .envrc (if bwenv-generated).
-	folder   string // Folder name extracted from the .envrc (if bwenv-generated).
+	provider string   // Provider slug extracted from the .envrc (if bwenv-generated).
+	folder   string   // Folder name extracted from the .envrc (if bwenv-generated).
+	itemIDs  []string // Specific item IDs extracted from the .envrc (optional).
 }
 
 // checkEnvrcStatus checks for .envrc in the current directory and parses
@@ -227,10 +231,11 @@ func checkEnvrcStatus() envrcInfo {
 	info := envrcInfo{state: envrcBwenv}
 
 	// Use the canonical parser from the envrc package.
-	prov, folder, parseErr := envrc.ParseEnvrcConfig()
+	prov, folder, itemIDs, parseErr := envrc.ParseEnvrcConfig()
 	if parseErr == nil {
 		info.provider = prov
 		info.folder = folder
+		info.itemIDs = itemIDs
 	}
 
 	return info

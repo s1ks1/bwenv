@@ -21,6 +21,13 @@ type Folder struct {
 	Name string // Human-readable name shown in the UI
 }
 
+// SecretItem represents a single secret item/entry within a folder.
+// Items contain custom fields that become environment variables.
+type SecretItem struct {
+	ID   string // Unique identifier from the provider
+	Name string // Human-readable name shown in the UI
+}
+
 // Provider is the interface that all secret providers must implement.
 // Each provider wraps a CLI tool (bw, op, etc.) and exposes a uniform API.
 type Provider interface {
@@ -53,6 +60,16 @@ type Provider interface {
 	// GetSecrets retrieves all key-value secrets from the specified folder.
 	// The session parameter may be needed for providers like Bitwarden.
 	GetSecrets(session string, folder Folder) ([]Secret, error)
+
+	// ListItems returns all secret items/entries within the given folder.
+	// Items are displayed in the interactive picker so users can choose
+	// which specific items to load secrets from.
+	ListItems(session string, folder Folder) ([]SecretItem, error)
+
+	// GetSecretsByItemIDs retrieves secrets only from the specified items.
+	// When itemIDs is non-empty, this is used instead of GetSecrets so that
+	// users can selectively load only the items they need from a folder.
+	GetSecretsByItemIDs(session string, itemIDs []string) ([]Secret, error)
 
 	// Lock terminates the current session / locks the vault.
 	// For Bitwarden this runs "bw lock", for 1Password "op signout".
