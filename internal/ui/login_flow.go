@@ -30,7 +30,7 @@ func RunLoginFlow(version string) error {
 	fmt.Println()
 
 	// Step 1: Parse .envrc to find out which provider and folder are configured.
-	providerSlug, folderName, err := envrc.ParseEnvrcConfig()
+	providerSlug, folderName, _, err := envrc.ParseEnvrcConfig()
 	if err != nil {
 		PrintBoxError(
 			E("❌", "[ERROR]")+" No bwenv configuration found",

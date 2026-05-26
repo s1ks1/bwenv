@@ -28,10 +28,27 @@ for better cross-platform support, simpler installation, and a **single static
 binary** for every platform with zero runtime dependencies beyond your password
 manager CLI and direnv.
 
+### Why bwenv for AI Workflows?
+
+AI coding assistants (Claude Code, Cursor, Copilot, etc.) read your project files and
+environment to understand context. This creates a unique challenge for secrets:
+
+- **Leak prevention** — `.env` files in your project are a risk; AI tools may read or
+  suggest committing them. bwenv keeps secrets in your vault, never on disk.
+- **AI sees zero secrets** — The `.envrc` file contains only a reference to
+  `bwenv export`; no keys, no tokens, no passwords.
+- **Works with AI in the shell** — Secrets loaded via direnv are available as
+  environment variables that AI tools inherit from the terminal.
+- **No more "oops, I committed the .env"** — When AI suggests `git add .`,
+  there's nothing sensitive to accidentally include.
+- **Share context safely** — Share your `.envrc` in repos, docs, or with AI
+  without exposing any real credentials.
+
 ---
 
 ## ✨ Features
 
+- **🎯 Pinpoint selection** — Load only specific items from a folder via TUI multi-select or `--items` CLI flag
 - **🔑 Multi-provider support** — Works with Bitwarden (`bw` CLI) and 1Password (`op` CLI)
 - **🎨 Beautiful TUI** — Interactive provider and folder selection with arrow keys, search, and filtering
 - **📁 Automatic `.envrc` generation** — Creates direnv-compatible files that auto-load your secrets
@@ -54,6 +71,12 @@ manager CLI and direnv.
 | [1Password CLI](https://developer.1password.com/docs/cli/) | One of these | Access your 1Password vaults from the terminal (`op`) |
 
 > You need **at least one** password manager CLI installed. bwenv will detect what's available and let you choose.
+
+> **Important:** You must be logged into your password manager's CLI **before** running bwenv. Depending on your provider:
+> - **Bitwarden:** Run `bw login` first (one-time setup), then `bwenv init` will prompt for your master password to unlock.
+> - **1Password:** Run `op signin` first, or rely on desktop app biometrics (op v2).
+>
+> If you haven't logged into the CLI yet, bwenv will fail at the authentication step. See [INSTALL.md](INSTALL.md) for detailed setup instructions.
 
 ---
 
@@ -152,7 +175,8 @@ This launches a full interactive TUI flow:
 1. **Select a provider** — Choose between Bitwarden, 1Password (or whichever CLIs you have installed)
 2. **Authenticate** — Unlock your vault or sign in (master password, biometrics, etc.)
 3. **Pick a folder** — Browse, search, and select the folder/vault containing your secrets
-4. **Generate `.envrc`** — A direnv-compatible file is created in the current directory
+4. **Pick specific items** — Choose individual items to load, or load all items in the folder
+5. **Generate `.envrc`** — A direnv-compatible file is created in the current directory
 
 Then just:
 
@@ -169,6 +193,9 @@ For CI/CD pipelines, scripts, or advanced usage, you can export secrets directly
 ```bash
 # Output "export KEY=VALUE" lines to stdout
 bwenv export --provider bitwarden --folder "MySecrets"
+
+# Export only specific items from a folder
+bwenv export --provider bitwarden --folder "MySecrets" --items "item-id-1,item-id-2"
 
 # Use with eval to set variables in the current shell
 eval "$(bwenv export --provider bitwarden --folder "MySecrets")"
@@ -276,7 +303,7 @@ bwenv version
                                           └──────────────┘
 ```
 
-1. **`bwenv init`** walks you through an interactive setup — pick your provider and folder
+1. **`bwenv init`** walks you through an interactive setup — pick your provider, folder, and optionally specific items
 2. It generates an `.envrc` file that contains a single `eval` call to `bwenv export`
 3. When direnv loads the `.envrc`, it runs `bwenv export` which fetches fresh secrets from your vault
 4. Each secret's custom fields (Bitwarden) or item fields (1Password) are exported as environment variables
