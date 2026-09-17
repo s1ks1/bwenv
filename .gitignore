@@ -66,6 +66,10 @@ $RECYCLE.BIN/
 *.tar.gz
 *.zip
 
+# -- Local-only documentation --
+# Internal notes and procedures stay in this directory and are never committed.
+docs/local/
+
 # -- Temporary and cache directories --
 .cache/
 tmp/
