@@ -107,10 +107,7 @@ type opVault struct {
 }
 
 func (v opVault) ToFolder() Folder {
-	return Folder{
-		ID:   v.ID,
-		Name: v.Name,
-	}
+	return Folder(v)
 }
 
 // ListFolders returns all vaults in the 1Password account.

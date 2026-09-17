@@ -3,6 +3,7 @@ package envrc
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -145,6 +146,10 @@ func TestGenerateFilePermissions(t *testing.T) {
 	info, err := os.Stat(".envrc")
 	if err != nil {
 		t.Fatalf("could not stat .envrc: %v", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
 	}
 
 	const expectedPerm = os.FileMode(0600)

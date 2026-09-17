@@ -870,7 +870,7 @@ func shortenHomePath(path string) string {
 		return "~"
 	}
 	if strings.HasPrefix(path, home) {
-		return "~" + path[len(home):]
+		return filepath.ToSlash("~" + path[len(home):])
 	}
 	return path
 }
