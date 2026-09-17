@@ -19,17 +19,6 @@
 - This is the v2.3.0 development line. Real-vault latency comparison remains
   local-only and is not used as a CI gate.
 
-### Added
-
-- `bwenv benchmark` reports provider stages, total time, process count and
-  variable count without printing secret values.
-- A shared, injectable process runner for Bitwarden and 1Password commands.
-- A deterministic fake provider CLI for integration tests, including expired
-  sessions, malformed responses, provider errors and simulated latency.
-- CI builds, tests and vets on Linux, macOS and Windows; Linux also checks
-  formatting, race conditions, static analysis and known vulnerabilities.
-- A performance baseline and measurement instructions in `docs/performance.md`.
-
 ## v2.2.0 - 2026-09-17
 
 ### Added
@@ -37,3 +26,8 @@
 - Phase 0 diagnostics, benchmark reporting, fake provider CLI coverage and
   cross-platform CI guardrails.
 - Performance baseline documentation in `docs/performance.md`.
+- `bwenv benchmark` reports provider stages, total time, process count and
+  variable count without printing secret values.
+- A shared, injectable process runner for Bitwarden and 1Password commands.
+- CI builds, tests and vets on Linux, macOS and Windows; Linux also checks
+  formatting, race conditions, static analysis and known vulnerabilities.
