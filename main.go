@@ -485,6 +485,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Export flags:"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--provider "), descStyle.Render("Secret provider: bitwarden, 1password"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder   "), descStyle.Render("Folder or vault name to load secrets from"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder-id"), descStyle.Render("Provider folder ID (optional — avoids folder lookup)"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--items    "), descStyle.Render("Comma-separated item IDs (optional — load only specific items)"))
 	fmt.Println()
 
