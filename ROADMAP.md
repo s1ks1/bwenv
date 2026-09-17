@@ -1,7 +1,7 @@
 # bwenv Roadmap
 
 > **Project:** `s1ks1/bwenv`
-> **Current public baseline:** `v2.2.0`
+> **Current public baseline:** `v2.3.0`
 > **Roadmap scope:** performance, architecture, security, activation model, DX, testing, CI/CD and future extensibility
 > **Primary goal:** make bwenv feel instant in normal shell usage while keeping secret handling safe and the project maintainable as it grows.
 
@@ -10,13 +10,15 @@
 **v2.2.0 (2026-09-17):** Phase 0 is complete and released. The benchmark
 command, injectable provider process runner, deterministic fake CLI tests,
 cross-platform CI workflow, structural baseline, and release guardrails are
-implemented. The next development line is v2.3.0 Phase 1, focused on the fast
-export path.
+implemented. The next development line is v2.4.0, focused on migration and
+diagnostics.
 
-**v2.3.0 development:** FolderID persistence, optimistic non-interactive
+**v2.3.0 (2026-09-17):** FolderID persistence, optimistic non-interactive
 authentication, Bitwarden batch item filtering, no-sync export behavior,
 provider command timeouts, and cache write avoidance are implemented on the
-development branch. Final acceptance and release are pending.
+main branch and released. A warm local Bitwarden measurement improved from
+7182.4 ms with four provider processes to 3112.9 ms with one process, an
+approximately 56.7% reduction.
 
 See [CHANGELOG.md](CHANGELOG.md) and [docs/performance.md](docs/performance.md).
 
@@ -896,6 +898,12 @@ Performance target:
 The exact wall-clock requirement should not be enforced in CI because provider CLI and machine performance vary.
 
 The subprocess-count requirement **should** be enforced.
+
+Verified local result for v2.3.0:
+
+- v2.2.0 legacy path: 7182.4 ms, four provider processes;
+- v2.3.0 FolderID path: 3112.9 ms, one provider process;
+- observed improvement: approximately 56.7%.
 
 ---
 

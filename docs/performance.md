@@ -43,12 +43,19 @@ Older `.envrc` files without `--folder-id` remain supported and use one extra
 folder-list operation. The fake 1Password fast path uses one item-list and one
 item-detail process for a one-item vault.
 
-## Future comparison
+## v2.3.0 comparison
 
-| Version | Scenario | Median warm time | Provider processes |
+The following warm run was measured on the reference macOS machine with two
+exported variables. It is a local observation, not a CI gate.
+
+| Version | Scenario | Warm time | Provider processes |
 |---|---|---:|---:|
-| v2.2.0 | Bitwarden, full folder | Not measured with a real vault | 4 (legacy path) |
-| v2.3.0 | Bitwarden, full folder | Pending | 1 (FolderID path) |
+| v2.2.0 | Bitwarden, full folder | 7182.4 ms | 4 (legacy path) |
+| v2.3.0 | Bitwarden, full folder | 3112.9 ms | 1 (FolderID path) |
+
+The observed improvement is approximately 56.7%. Repeat the measurement several
+times and report the median when comparing another machine or provider CLI
+version.
 
 The CI gate should assert process counts and output safety. Wall-clock timing
 is recorded for local comparison, not used as a pass/fail threshold.

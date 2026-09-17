@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (planned v2.3.0)
+## v2.3.0 - 2026-09-17
 
 ### Performance
 
@@ -16,8 +16,10 @@
 
 ### Notes
 
-- This is the v2.3.0 development line. Real-vault latency comparison remains
-  local-only and is not used as a CI gate.
+- On the reference macOS machine, a warm Bitwarden export improved from
+  7182.4 ms with four provider processes to 3112.9 ms with one process.
+- The measured improvement is approximately 56.7%; wall-clock timing remains
+  a local observation and is not used as a CI gate.
 
 ## v2.2.0 - 2026-09-17
 
