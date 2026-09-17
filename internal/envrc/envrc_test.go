@@ -3,6 +3,7 @@ package envrc
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -147,6 +148,10 @@ func TestGenerateFilePermissions(t *testing.T) {
 		t.Fatalf("could not stat .envrc: %v", err)
 	}
 
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
+	}
+
 	const expectedPerm = os.FileMode(0600)
 	if info.Mode().Perm() != expectedPerm {
 		t.Errorf("expected .envrc permissions %o, got %o", expectedPerm, info.Mode().Perm())
@@ -256,23 +261,23 @@ func TestParseEnvrcConfigNotBwenv(t *testing.T) {
 // ── PreviewSecrets ──────────────────────────────────────────────────────────
 
 type mockProvider struct {
-	name              string
-	secrets           []provider.Secret
-	secretsByIDs      []provider.Secret
-	listItemsResult   []provider.SecretItem
-	getSecretsErr     error
+	name               string
+	secrets            []provider.Secret
+	secretsByIDs       []provider.Secret
+	listItemsResult    []provider.SecretItem
+	getSecretsErr      error
 	getSecretsByIDsErr error
 }
 
-func (m *mockProvider) Name() string                                             { return m.name }
-func (m *mockProvider) Slug() string                                             { return "mock" }
-func (m *mockProvider) Description() string                                      { return "Mock provider for testing" }
-func (m *mockProvider) CLICommand() string                                       { return "mock" }
-func (m *mockProvider) IsAvailable() bool                                        { return true }
-func (m *mockProvider) IsAuthenticated() bool                                    { return true }
-func (m *mockProvider) Authenticate() (string, error)                            { return "session", nil }
-func (m *mockProvider) Lock() error                                              { return nil }
-func (m *mockProvider) ListFolders(string) ([]provider.Folder, error)            { return nil, nil }
+func (m *mockProvider) Name() string                                  { return m.name }
+func (m *mockProvider) Slug() string                                  { return "mock" }
+func (m *mockProvider) Description() string                           { return "Mock provider for testing" }
+func (m *mockProvider) CLICommand() string                            { return "mock" }
+func (m *mockProvider) IsAvailable() bool                             { return true }
+func (m *mockProvider) IsAuthenticated() bool                         { return true }
+func (m *mockProvider) Authenticate() (string, error)                 { return "session", nil }
+func (m *mockProvider) Lock() error                                   { return nil }
+func (m *mockProvider) ListFolders(string) ([]provider.Folder, error) { return nil, nil }
 func (m *mockProvider) ListItems(string, provider.Folder) ([]provider.SecretItem, error) {
 	return m.listItemsResult, nil
 }

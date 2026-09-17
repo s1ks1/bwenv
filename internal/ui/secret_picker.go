@@ -33,15 +33,15 @@ func (m SecretPickerModel) selectedCount() int {
 }
 
 type SecretPickerModel struct {
-	allItems    []provider.SecretItem
-	filtered    []provider.SecretItem
-	selected    map[string]bool
-	cursor      int
-	offset      int
-	cancelled   bool
-	searchInput textinput.Model
-	searching   bool
-	width       int
+	allItems     []provider.SecretItem
+	filtered     []provider.SecretItem
+	selected     map[string]bool
+	cursor       int
+	offset       int
+	cancelled    bool
+	searchInput  textinput.Model
+	searching    bool
+	width        int
 	providerName string
 	folderName   string
 }

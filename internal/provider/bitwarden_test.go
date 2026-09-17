@@ -129,7 +129,7 @@ func TestBitwardenFolderToFolderStruct(t *testing.T) {
 		if f.Name == "" {
 			continue
 		}
-		folders = append(folders, Folder{ID: f.ID, Name: f.Name})
+		folders = append(folders, Folder(f))
 	}
 
 	if len(folders) != 2 {

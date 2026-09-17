@@ -63,7 +63,7 @@ func TestOnePasswordVaultsToFolders(t *testing.T) {
 
 	folders := make([]Folder, 0, len(raw))
 	for _, v := range raw {
-		folders = append(folders, Folder{ID: v.ID, Name: v.Name})
+		folders = append(folders, v.ToFolder())
 	}
 
 	if len(folders) != 2 {

@@ -4,16 +4,35 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/s1ks1/bwenv/internal/process"
 )
 
 // OnePassword implements the Provider interface using the 1Password CLI.
-type OnePassword struct{}
+type OnePassword struct {
+	Runner           process.Runner
+	SuppressWarnings bool
+}
+
+func (o *OnePassword) withRunner(runner process.Runner) Provider {
+	return &OnePassword{Runner: runner, SuppressWarnings: true}
+}
+
+func (o *OnePassword) run(args []string, streams process.IO) (process.Result, error) {
+	runner := o.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	return runner.Run(context.Background(), "op", args, streams)
+}
 
 // init registers the 1Password provider in the global registry on startup.
 func init() {
@@ -44,12 +63,11 @@ func (o *OnePassword) IsAvailable() bool {
 // The "op" CLI v2+ uses system authentication (biometrics, etc.) so we
 // test by running a simple command and seeing if it succeeds.
 func (o *OnePassword) IsAuthenticated() bool {
-	cmd := exec.Command("op", "vault", "list", "--format=json")
-	out, err := cmd.Output()
+	result, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{})
 	if err != nil {
 		return false
 	}
-	return len(out) > 0
+	return len(result.Stdout) > 0
 }
 
 // Authenticate signs in to 1Password. With op CLI v2+, this typically
@@ -66,8 +84,7 @@ func (o *OnePassword) Authenticate() (string, error) {
 	// Check for service account token (headless / CI environments).
 	if token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN"); token != "" {
 		// Verify the token works.
-		cmd := exec.Command("op", "vault", "list", "--format=json")
-		if err := cmd.Run(); err == nil {
+		if _, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{}); err == nil {
 			return "", nil
 		}
 		return "", fmt.Errorf("OP_SERVICE_ACCOUNT_TOKEN is set but invalid")
@@ -75,11 +92,8 @@ func (o *OnePassword) Authenticate() (string, error) {
 
 	// Attempt interactive sign-in. The op CLI v2 will open a system
 	// authentication prompt (Touch ID, password dialog, etc.).
-	cmd := exec.Command("op", "signin")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	_, err := o.run([]string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
+	if err != nil {
 		return "", fmt.Errorf("failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", err)
 	}
 
@@ -93,33 +107,26 @@ type opVault struct {
 }
 
 func (v opVault) ToFolder() Folder {
-	return Folder{
-		ID:   v.ID,
-		Name: v.Name,
-	}
+	return Folder(v)
 }
 
 // ListFolders returns all vaults in the 1Password account.
 // In 1Password, "vaults" are the equivalent of Bitwarden's "folders".
 // The session parameter is unused for op v2 (auth is managed internally).
 func (o *OnePassword) ListFolders(session string) ([]Folder, error) {
-	cmd := exec.Command("op", "vault", "list", "--format=json")
-	out, err := cmd.Output()
+	result, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list 1Password vaults: %w", err)
 	}
 
 	var vaults []opVault
-	if err := json.Unmarshal(out, &vaults); err != nil {
+	if err := json.Unmarshal(result.Stdout, &vaults); err != nil {
 		return nil, fmt.Errorf("failed to parse vault list: %w", err)
 	}
 
 	folders := make([]Folder, 0, len(vaults))
 	for _, v := range vaults {
-		folders = append(folders, Folder{
-			ID:   v.ID,
-			Name: v.Name,
-		})
+		folders = append(folders, v.ToFolder())
 	}
 
 	return folders, nil
@@ -160,8 +167,10 @@ func (o *OnePassword) GetSecrets(session string, folder Folder) ([]Secret, error
 	if err != nil {
 		return nil, err
 	}
-	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	if !o.SuppressWarnings {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
 	}
 
 	return o.collectSecretsFromItems(items, folder.ID), nil
@@ -208,8 +217,7 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, itemIDs []string) ([]S
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			getCmd := exec.Command("op", "item", "get", itemID, "--format=json")
-			getOut, getErr := getCmd.Output()
+			result, getErr := o.run([]string{"item", "get", itemID, "--format=json"}, process.IO{})
 			if getErr != nil {
 				mu.Lock()
 				errors = append(errors, fmt.Sprintf("could not fetch item %q: %v", itemID, getErr))
@@ -218,7 +226,7 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, itemIDs []string) ([]S
 			}
 
 			var detail opItemDetail
-			if parseErr := json.Unmarshal(getOut, &detail); parseErr != nil {
+			if parseErr := json.Unmarshal(result.Stdout, &detail); parseErr != nil {
 				mu.Lock()
 				warnings = append(warnings, fmt.Sprintf("could not parse item %q: %v", itemID, parseErr))
 				mu.Unlock()
@@ -251,11 +259,16 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, itemIDs []string) ([]S
 
 	wg.Wait()
 
-	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	if o.SuppressWarnings && (len(warnings) > 0 || len(errors) > 0) {
+		return nil, fmt.Errorf("%d selected items could not be measured", len(warnings)+len(errors))
 	}
-	for _, e := range errors {
-		fmt.Fprintf(os.Stderr, "error: %s\n", e)
+	if !o.SuppressWarnings {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
+		for _, e := range errors {
+			fmt.Fprintf(os.Stderr, "error: %s\n", e)
+		}
 	}
 
 	var secrets []Secret
@@ -269,14 +282,13 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, itemIDs []string) ([]S
 // listItemsInVault runs "op item list --vault" and returns the parsed items
 // along with any warnings encountered.
 func (o *OnePassword) listItemsInVault(vaultID string) ([]opItem, []string, error) {
-	listCmd := exec.Command("op", "item", "list", "--vault", vaultID, "--format=json")
-	listOut, err := listCmd.Output()
+	result, err := o.run([]string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to list items in vault %q: %w", vaultID, err)
 	}
 
 	var items []opItem
-	if err := json.Unmarshal(listOut, &items); err != nil {
+	if err := json.Unmarshal(result.Stdout, &items); err != nil {
 		return nil, nil, fmt.Errorf("failed to parse item list: %w", err)
 	}
 
@@ -305,8 +317,7 @@ func (o *OnePassword) collectSecretsFromItems(items []opItem, vaultID string) []
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			getCmd := exec.Command("op", "item", "get", it.ID, "--vault", vaultID, "--format=json")
-			getOut, getErr := getCmd.Output()
+			result, getErr := o.run([]string{"item", "get", it.ID, "--vault", vaultID, "--format=json"}, process.IO{})
 			if getErr != nil {
 				mu.Lock()
 				warnings = append(warnings, fmt.Sprintf("could not fetch item %q: %v", it.Title, getErr))
@@ -315,7 +326,7 @@ func (o *OnePassword) collectSecretsFromItems(items []opItem, vaultID string) []
 			}
 
 			var detail opItemDetail
-			if parseErr := json.Unmarshal(getOut, &detail); parseErr != nil {
+			if parseErr := json.Unmarshal(result.Stdout, &detail); parseErr != nil {
 				mu.Lock()
 				warnings = append(warnings, fmt.Sprintf("could not parse item %q: %v", it.Title, parseErr))
 				mu.Unlock()
@@ -348,8 +359,10 @@ func (o *OnePassword) collectSecretsFromItems(items []opItem, vaultID string) []
 
 	wg.Wait()
 
-	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	if !o.SuppressWarnings {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
 	}
 
 	var secrets []Secret
@@ -369,10 +382,8 @@ func (o *OnePassword) Lock() error {
 		return nil
 	}
 
-	cmd := exec.Command("op", "signout")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
+	_, err := o.run([]string{"signout"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil {
 		return fmt.Errorf("failed to sign out of 1Password: %w", err)
 	}
 	return nil

@@ -9,13 +9,14 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/internal/benchmark"
 	"github.com/s1ks1/bwenv/internal/envrc"
 	"github.com/s1ks1/bwenv/internal/ui"
 )
 
 // Version is set at build time via -ldflags.
 // Overridden by GoReleaser or Makefile via: -ldflags "-X main.Version=v2.0.0"
-var Version = "v2.0.0-dev"
+var Version = "v2.2.0-dev"
 
 func main() {
 	// Parse command from arguments, skipping any flags.
@@ -81,6 +82,9 @@ func main() {
 		// "test" and "doctor" are aliases for "status" (merged command).
 		runStatus()
 
+	case "benchmark":
+		runBenchmark(args)
+
 	case "version", "--version", "-v":
 		// Print styled version information.
 		runVersion()
@@ -88,6 +92,31 @@ func main() {
 	default:
 		// Show usage help when no command (or an unknown command) is given.
 		printUsage()
+	}
+}
+
+func runBenchmark(args []string) {
+	providerSlug, folder, itemIDs := parseExportFlags(args)
+	if providerSlug == "" && folder == "" {
+		var err error
+		providerSlug, folder, itemIDs, err = envrc.ParseEnvrcConfig()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
+			os.Exit(1)
+		}
+	}
+	if providerSlug == "" || folder == "" {
+		fmt.Fprintln(os.Stderr, "benchmark: both --provider and --folder are required")
+		os.Exit(1)
+	}
+	report, err := benchmark.Benchmark(providerSlug, folder, itemIDs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
+		os.Exit(1)
+	}
+	if err := report.Print(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "benchmark: could not write report: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -437,6 +466,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("benchmark  "), descStyle.Render(ui.E("⏱️", "->")+` Measure provider calls for this project`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙️ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("logout     "), descStyle.Render(ui.E("🔒", "->")+` Lock vaults and terminate active sessions`))
 	fmt.Println()
