@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/s1ks1/bwenv/internal/process"
 )
 
 // Secret represents a single key-value pair retrieved from a provider.
@@ -94,6 +96,19 @@ func Get(slug string) (Provider, error) {
 		return nil, fmt.Errorf("unknown provider %q — available: %s", slug, availableSlugs())
 	}
 	return p, nil
+}
+
+// GetWithRunner returns an isolated provider instance for diagnostics and tests.
+func GetWithRunner(slug string, runner process.Runner) (Provider, error) {
+	p, err := Get(slug)
+	if err != nil {
+		return nil, err
+	}
+	cloneable, ok := p.(interface{ withRunner(process.Runner) Provider })
+	if !ok {
+		return nil, fmt.Errorf("provider %q does not support an injected runner", slug)
+	}
+	return cloneable.withRunner(runner), nil
 }
 
 // All returns a list of every registered provider, sorted by name for

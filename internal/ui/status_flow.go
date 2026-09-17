@@ -21,12 +21,12 @@ import (
 // This is the single diagnostic command — it combines the previous "status" and "test"
 // into one clean output that covers everything:
 //
-//	1. Current directory & .envrc status
-//	2. Core dependencies (direnv)
-//	3. Provider availability and sessions
-//	4. Direnv hook configuration
-//	5. Relevant environment variables
-//	6. Current config preferences
+//  1. Current directory & .envrc status
+//  2. Core dependencies (direnv)
+//  3. Provider availability and sessions
+//  4. Direnv hook configuration
+//  5. Relevant environment variables
+//  6. Current config preferences
 func RunStatusFlow(version string) error {
 	PrintBanner(version)
 	fmt.Println()

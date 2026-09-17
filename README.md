@@ -371,6 +371,10 @@ make fmt          # Format all Go source files
 make tidy         # Clean up go.mod/go.sum
 ```
 
+Run `bwenv benchmark` inside a configured project to measure provider calls
+without displaying secret values. See [performance notes](docs/performance.md)
+and the [changelog](CHANGELOG.md) for the current development milestone.
+
 ### Git Workflow
 
 `main` is the stable branch and release source. Work on feature branches, open a

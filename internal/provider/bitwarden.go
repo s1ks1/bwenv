@@ -5,15 +5,31 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/s1ks1/bwenv/internal/process"
 )
 
 // Bitwarden implements the Provider interface using the Bitwarden CLI.
-type Bitwarden struct{}
+type Bitwarden struct{ Runner process.Runner }
+
+func (b *Bitwarden) withRunner(runner process.Runner) Provider {
+	return &Bitwarden{Runner: runner}
+}
+
+func (b *Bitwarden) run(args []string, streams process.IO) (process.Result, error) {
+	runner := b.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	return runner.Run(context.Background(), "bw", args, streams)
+}
 
 // init registers the Bitwarden provider in the global registry on startup.
 func init() {
@@ -49,14 +65,11 @@ func (b *Bitwarden) IsAuthenticated() bool {
 	}
 	// Try listing folders to verify the session is still valid.
 	// Capture both stdout and stderr so we can detect error responses.
-	cmd := exec.Command("bw", "list", "folders", "--session", session)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	result, err := b.run([]string{"list", "folders", "--session", session}, process.IO{})
+	if err != nil {
 		return false
 	}
-	out := bytes.TrimSpace(stdout.Bytes())
+	out := bytes.TrimSpace(result.Stdout)
 	// The output must be a non-empty JSON array to be considered valid.
 	return len(out) > 0 && out[0] == '['
 }
@@ -74,19 +87,16 @@ func (b *Bitwarden) Authenticate() (string, error) {
 	}
 
 	// Sync the vault first (best-effort, don't fail if offline).
-	_ = runSilent("bw", "sync")
+	_, _ = b.run([]string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 
 	// Unlock the vault interactively. The "bw unlock --raw" command
 	// prompts for the master password and outputs just the session token.
-	cmd := exec.Command("bw", "unlock", "--raw")
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	result, err := b.run([]string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
 	if err != nil {
 		return "", fmt.Errorf("failed to unlock Bitwarden vault: %w", err)
 	}
 
-	session := strings.TrimSpace(string(out))
+	session := strings.TrimSpace(string(result.Stdout))
 	if session == "" {
 		return "", fmt.Errorf("received empty session token from 'bw unlock'")
 	}
@@ -104,20 +114,16 @@ type bwFolder struct {
 // Sync is NOT called here — it's done once in Authenticate() to avoid
 // redundant network calls.
 func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
-	cmd := exec.Command("bw", "list", "folders", "--session", session)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		stderrStr := strings.TrimSpace(stderr.String())
+	result, err := b.run([]string{"list", "folders", "--session", session}, process.IO{})
+	if err != nil {
+		stderrStr := strings.TrimSpace(string(result.Stderr))
 		if stderrStr != "" {
 			return nil, fmt.Errorf("failed to list Bitwarden folders: %s", stderrStr)
 		}
 		return nil, fmt.Errorf("failed to list Bitwarden folders: %w (is your session still valid? try 'bwenv login' to re-authenticate)", err)
 	}
 
-	out := bytes.TrimSpace(stdout.Bytes())
+	out := bytes.TrimSpace(result.Stdout)
 
 	// Guard against empty output — this can happen when the session has
 	// expired or the vault is locked. The bw CLI sometimes exits 0 but
@@ -227,20 +233,16 @@ func (b *Bitwarden) GetSecretsByItemIDs(session string, itemIDs []string) ([]Sec
 	var secrets []Secret
 
 	for _, id := range itemIDs {
-		cmd := exec.Command("bw", "get", "item", id, "--session", session)
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		if err := cmd.Run(); err != nil {
-			stderrStr := strings.TrimSpace(stderr.String())
+		result, err := b.run([]string{"get", "item", id, "--session", session}, process.IO{})
+		if err != nil {
+			stderrStr := strings.TrimSpace(string(result.Stderr))
 			if stderrStr != "" {
 				return nil, fmt.Errorf("failed to get item %q: %s", id, stderrStr)
 			}
 			return nil, fmt.Errorf("failed to get item %q: %w", id, err)
 		}
 
-		out := bytes.TrimSpace(stdout.Bytes())
+		out := bytes.TrimSpace(result.Stdout)
 		if len(out) == 0 {
 			continue
 		}
@@ -267,20 +269,16 @@ func (b *Bitwarden) GetSecretsByItemIDs(session string, itemIDs []string) ([]Sec
 // listItems is the shared implementation that parses the raw bwItem list
 // from "bw list items". Used by both GetSecrets and ListItems.
 func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error) {
-	cmd := exec.Command("bw", "list", "items", "--folderid", folderID, "--session", session)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		stderrStr := strings.TrimSpace(stderr.String())
+	result, err := b.run([]string{"list", "items", "--folderid", folderID, "--session", session}, process.IO{})
+	if err != nil {
+		stderrStr := strings.TrimSpace(string(result.Stderr))
 		if stderrStr != "" {
 			return nil, fmt.Errorf("failed to list items in folder %q: %s", folderID, stderrStr)
 		}
 		return nil, fmt.Errorf("failed to list items in folder %q: %w", folderID, err)
 	}
 
-	out := bytes.TrimSpace(stdout.Bytes())
+	out := bytes.TrimSpace(result.Stdout)
 
 	if len(out) == 0 {
 		return nil, fmt.Errorf(
@@ -310,22 +308,11 @@ func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error)
 // Lock locks the Bitwarden vault, invalidating the current session.
 // This is used by the "bwenv logout" command.
 func (b *Bitwarden) Lock() error {
-	cmd := exec.Command("bw", "lock")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
+	_, err := b.run([]string{"lock"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil {
 		return fmt.Errorf("failed to lock Bitwarden vault: %w", err)
 	}
 	return nil
-}
-
-// runSilent executes a command discarding all output.
-// Returns any error from the command execution.
-func runSilent(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return cmd.Run()
 }
 
 // truncateOutput returns a truncated string representation of raw bytes
