@@ -55,6 +55,11 @@ type Provider interface {
 	// Returns a session token (or empty string if not applicable).
 	Authenticate() (session string, err error)
 
+	// AuthenticateNonInteractive returns the current session without prompting
+	// or performing sync. Hot-path commands use the requested operation itself
+	// to validate access.
+	AuthenticateNonInteractive() (session string, err error)
+
 	// ListFolders returns all folders/vaults available in the provider.
 	// The session parameter may be needed for providers like Bitwarden.
 	ListFolders(session string) ([]Folder, error)
@@ -68,10 +73,11 @@ type Provider interface {
 	// which specific items to load secrets from.
 	ListItems(session string, folder Folder) ([]SecretItem, error)
 
-	// GetSecretsByItemIDs retrieves secrets only from the specified items.
+	// GetSecretsByItemIDs retrieves secrets only from the specified items in a
+	// folder.
 	// When itemIDs is non-empty, this is used instead of GetSecrets so that
 	// users can selectively load only the items they need from a folder.
-	GetSecretsByItemIDs(session string, itemIDs []string) ([]Secret, error)
+	GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error)
 
 	// Lock terminates the current session / locks the vault.
 	// For Bitwarden this runs "bw lock", for 1Password "op signout".

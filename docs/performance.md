@@ -1,6 +1,6 @@
 # Performance baseline
 
-The reference baseline is v2.1.0. `bwenv benchmark` follows the current
+The reference baseline is v2.2.0. `bwenv benchmark` follows the current
 non-interactive provider path and reports stage durations and the number of
 provider CLI processes. It never prints secret values or command arguments.
 
@@ -25,29 +25,30 @@ session tokens in a report.
 
 ## Verified structural baseline
 
-The deterministic fake Bitwarden CLI integration test models one folder with
-one item. A non-interactive export requires **four** provider invocations:
+The v2.2.0 deterministic fake Bitwarden path required **four** provider
+invocations:
 
 1. `IsAuthenticated`: list folders.
 2. `Authenticate`: validate the same session by listing folders again.
 3. `ListFolders`: resolve the folder name.
 4. `GetSecrets`: list items in the folder.
 
-Selected items add one `bw get item` invocation per item. These counts are
-asserted by tests and are the baseline for the v2.3.0 fast path. Timing on a
-fake CLI is not a useful measure of real vault latency; real measurements
-require an authenticated development machine and are intentionally not
-invented here.
+The v2.3.0 fast path persists the folder ID and uses one `bw list items`
+invocation for the full folder or for selected items, then filters locally.
+Non-interactive export does not run `bw sync` or a separate session probe.
+These process counts and the absence of secret values in benchmark output are
+asserted by tests.
 
-The fake 1Password scenario currently uses five CLI invocations: two session
-checks, one vault list, one item list, and one item detail fetch.
+Older `.envrc` files without `--folder-id` remain supported and use one extra
+folder-list operation. The fake 1Password fast path uses one item-list and one
+item-detail process for a one-item vault.
 
 ## Future comparison
 
 | Version | Scenario | Median warm time | Provider processes |
 |---|---|---:|---:|
-| v2.1.0 | Bitwarden, full folder | Not measured with a real vault | 4 (fake CLI) |
-| v2.3.0 | Bitwarden, full folder | Pending | Target: 1 |
+| v2.2.0 | Bitwarden, full folder | Not measured with a real vault | 4 (legacy path) |
+| v2.3.0 | Bitwarden, full folder | Pending | 1 (FolderID path) |
 
 The CI gate should assert process counts and output safety. Wall-clock timing
 is recorded for local comparison, not used as a pass/fail threshold.

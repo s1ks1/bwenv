@@ -50,6 +50,10 @@ func TestGenerateWithoutItems(t *testing.T) {
 		t.Error("expected .envrc to contain '--folder' with folder name")
 	}
 
+	if !strings.Contains(text, "--folder-id 'folder-id-123'") {
+		t.Error("expected .envrc to contain the persisted folder ID")
+	}
+
 	if strings.Contains(text, "--items") {
 		t.Error("did not expect --items flag when no items configured")
 	}
@@ -127,6 +131,39 @@ func TestGenerateWithoutSession(t *testing.T) {
 	}
 }
 
+func TestGenerateWithoutFolderIDKeepsLegacyExport(t *testing.T) {
+	dir := t.TempDir()
+	origWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origWd)
+
+	if err := Generate(Config{
+		ProviderSlug: "bitwarden",
+		FolderName:   "Legacy",
+		Session:      "session-token",
+		Version:      testVersion,
+	}); err != nil {
+		t.Fatalf("Generate() returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(".envrc")
+	if err != nil {
+		t.Fatalf("could not read generated .envrc: %v", err)
+	}
+	text := string(content)
+	if strings.Contains(text, "--folder-id") {
+		t.Fatal("legacy config should not emit an empty --folder-id flag")
+	}
+
+	_, folder, folderID, _, err := ParseEnvrcConfigWithFolderID()
+	if err != nil {
+		t.Fatalf("ParseEnvrcConfigWithFolderID() returned error: %v", err)
+	}
+	if folder != "Legacy" || folderID != "" {
+		t.Fatalf("expected legacy folder without ID, got folder=%q id=%q", folder, folderID)
+	}
+}
+
 func TestGenerateFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	origWd, _ := os.Getwd()
@@ -179,7 +216,7 @@ func TestParseEnvrcConfig(t *testing.T) {
 		t.Fatalf("Generate() failed: %v", err)
 	}
 
-	provider, folder, itemIDs, err := ParseEnvrcConfig()
+	provider, folder, folderID, itemIDs, err := ParseEnvrcConfigWithFolderID()
 	if err != nil {
 		t.Fatalf("ParseEnvrcConfig() returned error: %v", err)
 	}
@@ -192,8 +229,12 @@ func TestParseEnvrcConfig(t *testing.T) {
 		t.Errorf("expected folder 'My Secrets', got %q", folder)
 	}
 
-	if len(itemIDs) != 2 || itemIDs[0] != "Item A" || itemIDs[1] != "Item B" {
-		t.Errorf("expected item IDs [Item A Item B], got %v", itemIDs)
+	if folderID != "folder-id" {
+		t.Errorf("expected folder ID 'folder-id', got %q", folderID)
+	}
+
+	if len(itemIDs) != 2 || itemIDs[0] != "id-1" || itemIDs[1] != "id-2" {
+		t.Errorf("expected item IDs [id-1 id-2], got %v", itemIDs)
 	}
 }
 
@@ -276,6 +317,7 @@ func (m *mockProvider) CLICommand() string                            { return "
 func (m *mockProvider) IsAvailable() bool                             { return true }
 func (m *mockProvider) IsAuthenticated() bool                         { return true }
 func (m *mockProvider) Authenticate() (string, error)                 { return "session", nil }
+func (m *mockProvider) AuthenticateNonInteractive() (string, error)   { return "session", nil }
 func (m *mockProvider) Lock() error                                   { return nil }
 func (m *mockProvider) ListFolders(string) ([]provider.Folder, error) { return nil, nil }
 func (m *mockProvider) ListItems(string, provider.Folder) ([]provider.SecretItem, error) {
@@ -284,7 +326,7 @@ func (m *mockProvider) ListItems(string, provider.Folder) ([]provider.SecretItem
 func (m *mockProvider) GetSecrets(string, provider.Folder) ([]provider.Secret, error) {
 	return m.secrets, m.getSecretsErr
 }
-func (m *mockProvider) GetSecretsByItemIDs(string, []string) ([]provider.Secret, error) {
+func (m *mockProvider) GetSecretsByItemIDs(string, provider.Folder, []string) ([]provider.Secret, error) {
 	return m.secretsByIDs, m.getSecretsByIDsErr
 }
 
@@ -336,7 +378,7 @@ func TestPreviewSecretsByIDs(t *testing.T) {
 		},
 	}
 
-	names, err := PreviewSecretsByIDs(p, "session", []string{"item-1"})
+	names, err := PreviewSecretsByIDs(p, "session", provider.Folder{Name: "Test", ID: "id"}, []string{"item-1"})
 	if err != nil {
 		t.Fatalf("PreviewSecretsByIDs() returned error: %v", err)
 	}

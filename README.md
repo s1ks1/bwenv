@@ -194,6 +194,9 @@ For CI/CD pipelines, scripts, or advanced usage, you can export secrets directly
 # Output "export KEY=VALUE" lines to stdout
 bwenv export --provider bitwarden --folder "MySecrets"
 
+# Use the persisted folder ID for the fast path (generated .envrc files do this automatically)
+bwenv export --provider bitwarden --folder-id "provider-folder-id" --folder "MySecrets"
+
 # Export only specific items from a folder
 bwenv export --provider bitwarden --folder "MySecrets" --items "item-id-1,item-id-2"
 

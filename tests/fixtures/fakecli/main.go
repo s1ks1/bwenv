@@ -39,7 +39,7 @@ func main() {
 	case strings.HasPrefix(args, "list folders"):
 		fmt.Print(`[{"id":"folder-1","name":"Fixture"}]`)
 	case strings.HasPrefix(args, "list items"):
-		fmt.Print(`[{"id":"item-1","name":"Test","fields":[{"name":"API_KEY","value":"fake-secret-value"}]}]`)
+		fmt.Print(`[{"id":"item-1","name":"Test","fields":[{"name":"API_KEY","value":"fake-secret-value"}]},{"id":"item-2","name":"Database","fields":[{"name":"DB_URL","value":"fake-database-value"}]}]`)
 	case strings.HasPrefix(args, "get item"):
 		fmt.Print(`{"id":"item-1","name":"Test","fields":[{"name":"API_KEY","value":"fake-secret-value"}]}`)
 	case strings.HasPrefix(args, "unlock"):

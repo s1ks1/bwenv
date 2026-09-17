@@ -96,10 +96,10 @@ func main() {
 }
 
 func runBenchmark(args []string) {
-	providerSlug, folder, itemIDs := parseExportFlags(args)
+	providerSlug, folder, folderID, itemIDs := parseExportFlags(args)
 	if providerSlug == "" && folder == "" {
 		var err error
-		providerSlug, folder, itemIDs, err = envrc.ParseEnvrcConfig()
+		providerSlug, folder, folderID, itemIDs, err = envrc.ParseEnvrcConfigWithFolderID()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
 			os.Exit(1)
@@ -109,7 +109,7 @@ func runBenchmark(args []string) {
 		fmt.Fprintln(os.Stderr, "benchmark: both --provider and --folder are required")
 		os.Exit(1)
 	}
-	report, err := benchmark.Benchmark(providerSlug, folder, itemIDs)
+	report, err := benchmark.Benchmark(providerSlug, folder, folderID, itemIDs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
 		os.Exit(1)
@@ -151,15 +151,15 @@ func runInit() {
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder)"
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder --items 'id1,id2')"
 func runExport(args []string) {
-	provider, folder, itemIDs := parseExportFlags(args)
+	provider, folder, folderID, itemIDs := parseExportFlags(args)
 
 	if provider == "" || folder == "" {
 		ui.PrintError("Missing flags", fmt.Errorf("both --provider and --folder are required"))
-		fmt.Fprintln(os.Stderr, "Usage: bwenv export --provider <bitwarden|1password> --folder <name> [--items 'id1,id2,...']")
+		fmt.Fprintln(os.Stderr, "Usage: bwenv export --provider <bitwarden|1password> --folder <name> [--folder-id <id>] [--items 'id1,id2,...']")
 		os.Exit(1)
 	}
 
-	if err := envrc.Export(provider, folder, itemIDs); err != nil {
+	if err := envrc.ExportWithFolderID(provider, folder, folderID, itemIDs); err != nil {
 		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
 		os.Exit(1)
 	}
@@ -402,8 +402,8 @@ func runStatus() {
 	}
 }
 
-// parseExportFlags extracts --provider, --folder, and --items values from the argument list.
-func parseExportFlags(args []string) (provider, folder string, itemIDs []string) {
+// parseExportFlags extracts provider, folder, folder ID, and item IDs.
+func parseExportFlags(args []string) (provider, folder, folderID string, itemIDs []string) {
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--provider" && i+1 < len(args):
@@ -417,6 +417,12 @@ func parseExportFlags(args []string) (provider, folder string, itemIDs []string)
 			folder = args[i]
 		case strings.HasPrefix(args[i], "--folder="):
 			folder = strings.TrimPrefix(args[i], "--folder=")
+
+		case args[i] == "--folder-id" && i+1 < len(args):
+			i++
+			folderID = args[i]
+		case strings.HasPrefix(args[i], "--folder-id="):
+			folderID = strings.TrimPrefix(args[i], "--folder-id=")
 
 		case args[i] == "--items" && i+1 < len(args):
 			i++
@@ -436,7 +442,7 @@ func parseExportFlags(args []string) (provider, folder string, itemIDs []string)
 			}
 		}
 	}
-	return provider, folder, itemIDs
+	return provider, folder, folderID, itemIDs
 }
 
 // printUsage displays the help text with styled output.
