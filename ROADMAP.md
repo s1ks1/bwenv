@@ -1,17 +1,23 @@
 # bwenv Roadmap
 
 > **Project:** `s1ks1/bwenv`
-> **Current public baseline:** `v2.1.0`
+> **Current public baseline:** `v2.2.0`
 > **Roadmap scope:** performance, architecture, security, activation model, DX, testing, CI/CD and future extensibility
 > **Primary goal:** make bwenv feel instant in normal shell usage while keeping secret handling safe and the project maintainable as it grows.
 
 ## Implementation status
 
-**v2.2.0 development (2026-09-17):** Phase 0 is in progress. The benchmark
+**v2.2.0 (2026-09-17):** Phase 0 is complete and released. The benchmark
 command, injectable provider process runner, deterministic fake CLI tests,
-cross-platform CI workflow, and structural baseline are implemented. Local
-build, tests, race tests, vet, and formatting have been checked. Real vault
-latencies and GitHub CI results are pending, so v2.2.0 has not been tagged.
+cross-platform CI workflow, structural baseline, and release guardrails are
+implemented. The next development line is v2.3.0 Phase 1, focused on the fast
+export path.
+
+**v2.3.0 development:** FolderID persistence, optimistic non-interactive
+authentication, Bitwarden batch item filtering, no-sync export behavior,
+provider command timeouts, and cache write avoidance are implemented on the
+development branch. Final acceptance and release are pending.
+
 See [CHANGELOG.md](CHANGELOG.md) and [docs/performance.md](docs/performance.md).
 
 ---
@@ -552,7 +558,7 @@ v2.2.0 is complete when:
 - [x] provider process execution can be instrumented;
 - [x] unit tests still pass;
 - [x] fake provider integration infrastructure exists;
-- [ ] CI runs on Linux, macOS and Windows (workflow added; remote run pending);
+- [x] CI runs on Linux, macOS and Windows;
 - [x] formatting, vet and vulnerability checks exist;
 - [x] benchmark output cannot reveal secret values in tested paths;
 - [x] current structural behavior is documented before optimization;
@@ -872,16 +878,16 @@ Do not allow an implicit shell activation to hang indefinitely.
 
 Structural criteria:
 
-- [ ] generated project config contains FolderID;
-- [ ] old `.envrc` files still work;
-- [ ] warm Bitwarden export does not list folders when FolderID is available;
-- [ ] warm Bitwarden export performs at most one primary vault fetch;
-- [ ] selected items no longer require one process per item;
-- [ ] `bwenv export` never runs `bw sync`;
-- [ ] `bwenv export` never prompts;
-- [ ] provider errors are translated into useful bwenv errors;
-- [ ] subprocess-count tests exist;
-- [ ] benchmark comparison is added to `docs/performance.md`.
+- [x] generated project config contains FolderID;
+- [x] old `.envrc` files still work;
+- [x] warm Bitwarden export does not list folders when FolderID is available;
+- [x] warm Bitwarden export performs at most one primary vault fetch;
+- [x] selected items no longer require one process per item;
+- [x] `bwenv export` never runs `bw sync`;
+- [x] `bwenv export` never prompts;
+- [x] provider errors are translated into useful bwenv errors;
+- [x] subprocess-count tests exist;
+- [x] benchmark comparison is added to `docs/performance.md`.
 
 Performance target:
 

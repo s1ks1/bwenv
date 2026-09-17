@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/s1ks1/bwenv/internal/process"
 )
@@ -27,6 +28,16 @@ func (o *OnePassword) withRunner(runner process.Runner) Provider {
 }
 
 func (o *OnePassword) run(args []string, streams process.IO) (process.Result, error) {
+	runner := o.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return runner.Run(ctx, "op", args, streams)
+}
+
+func (o *OnePassword) runInteractive(args []string, streams process.IO) (process.Result, error) {
 	runner := o.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
@@ -92,11 +103,16 @@ func (o *OnePassword) Authenticate() (string, error) {
 
 	// Attempt interactive sign-in. The op CLI v2 will open a system
 	// authentication prompt (Touch ID, password dialog, etc.).
-	_, err := o.run([]string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
+	_, err := o.runInteractive([]string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
 	if err != nil {
 		return "", fmt.Errorf("failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", err)
 	}
 
+	return "", nil
+}
+
+// AuthenticateNonInteractive leaves validation to the requested op command.
+func (o *OnePassword) AuthenticateNonInteractive() (string, error) {
 	return "", nil
 }
 
@@ -196,7 +212,7 @@ func (o *OnePassword) ListItems(session string, folder Folder) ([]SecretItem, er
 
 // GetSecretsByItemIDs retrieves fields only from the specified items.
 // Item IDs are globally unique in 1Password, so no vault specification is needed.
-func (o *OnePassword) GetSecretsByItemIDs(session string, itemIDs []string) ([]Secret, error) {
+func (o *OnePassword) GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error) {
 	type itemResult struct {
 		index   int
 		secrets []Secret

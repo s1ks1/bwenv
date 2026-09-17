@@ -197,7 +197,7 @@ func RunInitFlow(version string) error {
 
 	var varNames []string
 	if len(itemIDs) > 0 {
-		varNames, err = envrc.PreviewSecretsByIDs(chosenProvider, session, itemIDs)
+		varNames, err = envrc.PreviewSecretsByIDs(chosenProvider, session, *chosenFolder, itemIDs)
 	} else {
 		varNames, err = envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
 	}

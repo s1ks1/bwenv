@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/s1ks1/bwenv/internal/process"
 )
@@ -24,6 +25,16 @@ func (b *Bitwarden) withRunner(runner process.Runner) Provider {
 }
 
 func (b *Bitwarden) run(args []string, streams process.IO) (process.Result, error) {
+	runner := b.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return runner.Run(ctx, "bw", args, streams)
+}
+
+func (b *Bitwarden) runInteractive(args []string, streams process.IO) (process.Result, error) {
 	runner := b.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
@@ -87,11 +98,11 @@ func (b *Bitwarden) Authenticate() (string, error) {
 	}
 
 	// Sync the vault first (best-effort, don't fail if offline).
-	_, _ = b.run([]string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	_, _ = b.runInteractive([]string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 
 	// Unlock the vault interactively. The "bw unlock --raw" command
 	// prompts for the master password and outputs just the session token.
-	result, err := b.run([]string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
+	result, err := b.runInteractive([]string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
 	if err != nil {
 		return "", fmt.Errorf("failed to unlock Bitwarden vault: %w", err)
 	}
@@ -102,6 +113,16 @@ func (b *Bitwarden) Authenticate() (string, error) {
 	}
 
 	return session, nil
+}
+
+// AuthenticateNonInteractive returns the session already supplied by the
+// shell. The provider operation validates it, so this method must not invoke
+// another CLI command.
+func (b *Bitwarden) AuthenticateNonInteractive() (string, error) {
+	if session := os.Getenv("BW_SESSION"); session != "" {
+		return session, nil
+	}
+	return "", fmt.Errorf("session expired or not active — run 'bwenv login' to re-authenticate")
 }
 
 // bwFolder is the JSON shape returned by "bw list folders".
@@ -226,37 +247,28 @@ func (b *Bitwarden) ListItems(session string, folder Folder) ([]SecretItem, erro
 }
 
 // GetSecretsByItemIDs retrieves custom fields only from the specified items.
-func (b *Bitwarden) GetSecretsByItemIDs(session string, itemIDs []string) ([]Secret, error) {
+func (b *Bitwarden) GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error) {
+	items, err := b.listItems(session, folder.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	byID := make(map[string]bwItem, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+
 	var secrets []Secret
-
 	for _, id := range itemIDs {
-		result, err := b.run([]string{"get", "item", id, "--session", session}, process.IO{})
-		if err != nil {
-			stderrStr := strings.TrimSpace(string(result.Stderr))
-			if stderrStr != "" {
-				return nil, fmt.Errorf("failed to get item %q: %s", id, stderrStr)
-			}
-			return nil, fmt.Errorf("failed to get item %q: %w", id, err)
+		item, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("item %q not found in folder %q", id, folder.Name)
 		}
-
-		out := bytes.TrimSpace(result.Stdout)
-		if len(out) == 0 {
-			continue
-		}
-
-		var item bwItem
-		if err := json.Unmarshal(out, &item); err != nil {
-			return nil, fmt.Errorf("failed to parse item %q: %w\n    Raw: %s", id, err, truncateOutput(out))
-		}
-
 		for _, field := range item.Fields {
 			if field.Name == "" {
 				continue
 			}
-			secrets = append(secrets, Secret{
-				Key:   field.Name,
-				Value: field.Value,
-			})
+			secrets = append(secrets, Secret{Key: field.Name, Value: field.Value})
 		}
 	}
 
