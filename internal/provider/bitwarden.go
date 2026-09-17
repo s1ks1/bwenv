@@ -161,10 +161,7 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 		if f.Name == "" {
 			continue
 		}
-		folders = append(folders, Folder{
-			ID:   f.ID,
-			Name: f.Name,
-		})
+		folders = append(folders, Folder(f))
 	}
 
 	return folders, nil

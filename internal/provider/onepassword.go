@@ -129,10 +129,7 @@ func (o *OnePassword) ListFolders(session string) ([]Folder, error) {
 
 	folders := make([]Folder, 0, len(vaults))
 	for _, v := range vaults {
-		folders = append(folders, Folder{
-			ID:   v.ID,
-			Name: v.Name,
-		})
+		folders = append(folders, v.ToFolder())
 	}
 
 	return folders, nil

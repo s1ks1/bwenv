@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,7 +113,7 @@ func TestRunnerTimeoutCountsAttempt(t *testing.T) {
 	installFakeCLI(t)
 	t.Setenv("BWENV_FAKE_DELAY", "100ms")
 	recorder := diagnostics.NewRecorder()
-	result, err := (process.ExecRunner{Recorder: recorder, Timeout: 10 * time.Millisecond}).Run(nil, "bw", []string{"list", "folders"}, process.IO{})
+	result, err := (process.ExecRunner{Recorder: recorder, Timeout: 10 * time.Millisecond}).Run(context.Background(), "bw", []string{"list", "folders"}, process.IO{})
 	if err == nil || len(result.Stdout) != 0 {
 		t.Fatalf("expected timed-out process, got result=%q err=%v", result.Stdout, err)
 	}

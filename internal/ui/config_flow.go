@@ -31,7 +31,6 @@ type ConfigFlowModel struct {
 	saved     bool
 	cancelled bool
 	width     int
-	err       error
 }
 
 // NewConfigFlow creates a new config flow model, pre-populated with the
