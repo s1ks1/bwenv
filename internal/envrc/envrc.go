@@ -20,6 +20,7 @@ package envrc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -134,8 +135,8 @@ type Config struct {
 //     the .envrc). For first-load suppression, see SilenceDirenvGlobally().
 //   - DIRENV_WARN_TIMEOUT uses Go duration format ("10m") which is required
 //     by direnv v2.30+ (plain seconds like "600" cause parse errors).
-//   - BW_SESSION is stored for Bitwarden users (the token expires, so the
-//     user will need to re-run "bwenv init" when it does).
+//   - BW_SESSION is stored in .envrc for Bitwarden users; it is never written
+//     to the separate .bwenv.toml project metadata file.
 func Generate(cfg Config) error {
 	// Load user preferences to decide whether to silence direnv output.
 	userCfg, _ := config.Load()
@@ -196,15 +197,22 @@ func Generate(cfg Config) error {
 	// Since bwenv's output does NOT start with "direnv:", it is never confused
 	// with direnv's own messages.
 	b.WriteString("# Load secrets from the provider into the environment\n")
-	exportCommand := fmt.Sprintf("bwenv export --provider %s",
-		shellEscape(cfg.ProviderSlug))
+	exportCommand := ""
 	if cfg.FolderID != "" {
-		exportCommand += " --folder-id " + shellQuote(cfg.FolderID)
-	}
-	exportCommand += " --folder " + shellQuote(cfg.FolderName)
-	if len(cfg.ItemIDs) > 0 {
-		itemsStr := strings.Join(cfg.ItemIDs, ",")
-		exportCommand += " --items " + shellQuote(itemsStr)
+		if err := writeProjectConfig(cfg); err != nil {
+			return err
+		}
+		exportCommand = "bwenv export --project ."
+	} else {
+		if err := os.Remove(".bwenv.toml"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove stale .bwenv.toml: %w", err)
+		}
+		exportCommand = fmt.Sprintf("bwenv export --provider %s",
+			shellEscape(cfg.ProviderSlug))
+		exportCommand += " --folder " + shellQuote(cfg.FolderName)
+		if len(cfg.ItemIDs) > 0 {
+			exportCommand += " --items " + shellQuote(strings.Join(cfg.ItemIDs, ","))
+		}
 	}
 	b.WriteString(fmt.Sprintf("eval \"$(%s)\"\n", exportCommand))
 
@@ -446,6 +454,14 @@ func ParseEnvrcConfig() (providerSlug string, folderName string, itemIDs []strin
 // ParseEnvrcConfigWithFolderID also returns the persisted provider folder ID.
 // Older .envrc files simply return an empty ID and use the legacy name path.
 func ParseEnvrcConfigWithFolderID() (providerSlug string, folderName string, folderID string, itemIDs []string, err error) {
+	projectConfig, projectErr := LoadProjectConfig(".bwenv.toml")
+	if projectErr == nil {
+		return projectConfig.Provider, projectConfig.Project.FolderName, projectConfig.Project.FolderID, projectConfig.Project.Items, nil
+	}
+	if !errors.Is(projectErr, os.ErrNotExist) {
+		return "", "", "", nil, projectErr
+	}
+
 	content, err := os.ReadFile(".envrc")
 	if err != nil {
 		return "", "", "", nil, fmt.Errorf("no .envrc found in current directory")
@@ -656,16 +672,17 @@ func RemoveAndUnset() (bool, []string, error) {
 	varNames := loadCachedVarNames()
 
 	removed, _, err := Remove()
+	if removed {
+		// Print unsets even when metadata cleanup fails after .envrc was removed.
+		for _, name := range varNames {
+			fmt.Printf("unset %s\n", name)
+		}
+	}
 	if err != nil {
 		return removed, varNames, err
 	}
 	if !removed {
 		return false, nil, nil
-	}
-
-	// Print unset statements to stdout (captured by shell wrapper's eval).
-	for _, name := range varNames {
-		fmt.Printf("unset %s\n", name)
 	}
 
 	return true, varNames, nil
@@ -1175,6 +1192,9 @@ func Remove() (bool, []string, error) {
 
 	if err := os.Remove(".envrc"); err != nil {
 		return false, varNames, fmt.Errorf("failed to remove .envrc: %w", err)
+	}
+	if err := os.Remove(".bwenv.toml"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return true, varNames, fmt.Errorf("failed to remove .bwenv.toml: %w", err)
 	}
 
 	// Also clean up the variable name cache.

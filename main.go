@@ -159,10 +159,26 @@ func runInit() {
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder --items 'id1,id2')"
 func runExport(args []string) {
 	provider, folder, folderID, itemIDs := parseExportFlags(args)
+	projectPath := parseProjectFlag(args)
+	if projectPath != "" {
+		if provider != "" || folder != "" || folderID != "" || len(itemIDs) > 0 {
+			ui.PrintError("Invalid flags", fmt.Errorf("--project cannot be combined with provider, folder, or item flags"))
+			os.Exit(1)
+		}
+		projectConfig, err := envrc.LoadProjectConfig(projectPath)
+		if err != nil {
+			ui.PrintError("Could not read project config", err)
+			os.Exit(1)
+		}
+		provider = projectConfig.Provider
+		folder = projectConfig.Project.FolderName
+		folderID = projectConfig.Project.FolderID
+		itemIDs = projectConfig.Project.Items
+	}
 
 	if provider == "" || folder == "" {
 		ui.PrintError("Missing flags", fmt.Errorf("both --provider and --folder are required"))
-		fmt.Fprintln(os.Stderr, "Usage: bwenv export --provider <bitwarden|1password> --folder <name> [--folder-id <id>] [--items 'id1,id2,...']")
+		fmt.Fprintln(os.Stderr, "Usage: bwenv export --project <path> | --provider <bitwarden|1password> --folder <name> [--folder-id <id>] [--items 'id1,id2,...']")
 		os.Exit(1)
 	}
 
@@ -170,6 +186,18 @@ func runExport(args []string) {
 		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func parseProjectFlag(args []string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--project" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(args[i], "--project=") {
+			return strings.TrimPrefix(args[i], "--project=")
+		}
+	}
+	return ""
 }
 
 // runAllow approves .envrc in the current directory via direnv and outputs

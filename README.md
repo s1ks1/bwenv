@@ -205,7 +205,15 @@ eval "$(bwenv export --provider bitwarden --folder "MySecrets")"
 
 # Works with 1Password too
 eval "$(bwenv export --provider 1password --folder "Production")"
+
+# Load canonical settings from a bwenv project
+bwenv export --project .
 ```
+
+New projects with a stable folder ID also contain a versioned `.bwenv.toml` with provider, folder,
+item references, and activation mode. It contains no secret values; existing `.envrc` projects and
+direct export flags remain supported. See [the migration guide](docs/migration.md) for the format
+and compatibility details.
 
 ### Refresh provider data
 
@@ -443,9 +451,10 @@ make release
 
 ---
 
-## 📋 Migration from v1 (Bash)
+## 📋 Migration from the Original Version
 
-If you're upgrading from the original Bash-based bwenv:
+If you're upgrading from the original Makefile, Bash, and PowerShell version of bwenv, install the
+Go-based release for more consistent support across operating systems:
 
 1. **Uninstall the old version:**
    ```bash
@@ -477,9 +486,9 @@ If you're upgrading from the original Bash-based bwenv:
 
 ### What changed?
 
-| | v1 (Bash) | v2 (Go) |
+| | v1 (scripts) | v2 (Go) |
 |---|---|---|
-| Language | Bash + batch scripts | Go (single binary) |
+| Implementation | Makefile, Bash, and PowerShell scripts | Go (single binary) |
 | Providers | Bitwarden only | Bitwarden + 1Password (extensible) |
 | Dependencies | `bw`, `jq`, `direnv` | `bw` or `op`, `direnv` (no `jq` needed!) |
 | UI | Basic terminal prompts | Beautiful TUI with Bubble Tea + Lipgloss |
