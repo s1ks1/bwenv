@@ -24,6 +24,9 @@ go.work.sum
 # -- Environment and secrets --
 .env
 .envrc
+# Temporary project-migration files; `.envrc.bwenv.bak` matches `*.bak` below.
+.envrc.bwenv-tmp-*
+.bwenv.toml-tmp-*
 .env.local
 .env.*.local
 

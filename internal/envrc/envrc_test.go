@@ -254,6 +254,32 @@ func TestParseEnvrcConfig(t *testing.T) {
 	}
 }
 
+func TestParseEnvrcConfigFlagsWithoutHeader(t *testing.T) {
+	dir := t.TempDir()
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalDir) })
+	content := `eval "$(bwenv export --provider=bitwarden --folder-id=folder-123 --folder 'Production' --items='item-a,item-b')"`
+	if err := os.WriteFile(".envrc", []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	providerSlug, folderName, folderID, itemIDs, err := ParseEnvrcConfigWithFolderID()
+	if err != nil {
+		t.Fatalf("ParseEnvrcConfigWithFolderID() returned error: %v", err)
+	}
+	if providerSlug != "bitwarden" || folderName != "Production" || folderID != "folder-123" {
+		t.Fatalf("parsed provider/folder = %q/%q (%q), want bitwarden/Production (folder-123)", providerSlug, folderName, folderID)
+	}
+	if strings.Join(itemIDs, ",") != "item-a,item-b" {
+		t.Fatalf("parsed item IDs = %v, want [item-a item-b]", itemIDs)
+	}
+}
+
 func TestParseEnvrcConfigWithoutItems(t *testing.T) {
 	dir := t.TempDir()
 	origWd, _ := os.Getwd()
@@ -317,9 +343,11 @@ func TestParseEnvrcConfigNotBwenv(t *testing.T) {
 
 func TestLoadProjectConfigValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		content string
-		wantErr bool
+		name          string
+		content       string
+		wantFolderID  string
+		wantItemCount int
+		wantErr       bool
 	}{
 		{
 			name: "valid",
@@ -334,9 +362,12 @@ items = ["item-1", "item-2"]
 [activation]
 mode = "direnv"
 `,
+			wantFolderID:  "folder-123",
+			wantItemCount: 2,
 		},
+		{name: "legacy config without folder id", content: "version = 1\nprovider = \"bitwarden\"\n[project]\nfolder_name = \"Production\"\n[activation]\nmode = \"direnv\"\n"},
 		{name: "unsupported version", content: "version = 2\n", wantErr: true},
-		{name: "missing folder id", content: "version = 1\nprovider = \"bitwarden\"\n[project]\nfolder_name = \"Production\"\n[activation]\nmode = \"direnv\"\n", wantErr: true},
+		{name: "missing folder name", content: "version = 1\nprovider = \"bitwarden\"\n[project]\nfolder_id = \"id\"\n[activation]\nmode = \"direnv\"\n", wantErr: true},
 		{name: "missing activation mode", content: "version = 1\nprovider = \"bitwarden\"\n[project]\nfolder_id = \"id\"\nfolder_name = \"Production\"\n[activation]\n", wantErr: true},
 		{name: "unknown session field", content: "version = 1\nprovider = \"bitwarden\"\nsession = \"secret\"\n", wantErr: true},
 	}
@@ -357,7 +388,7 @@ mode = "direnv"
 			if err != nil {
 				t.Fatalf("LoadProjectConfig() returned error: %v", err)
 			}
-			if cfg.Project.FolderID != "folder-123" || len(cfg.Project.Items) != 2 {
+			if cfg.Project.FolderID != tt.wantFolderID || len(cfg.Project.Items) != tt.wantItemCount {
 				t.Fatalf("unexpected project config: %+v", cfg)
 			}
 		})

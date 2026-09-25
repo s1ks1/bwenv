@@ -21,7 +21,7 @@ type ProjectConfig struct {
 }
 
 type ProjectMetadata struct {
-	FolderID   string   `toml:"folder_id"`
+	FolderID   string   `toml:"folder_id,omitempty"`
 	FolderName string   `toml:"folder_name"`
 	Items      []string `toml:"items,omitempty"`
 }
@@ -55,9 +55,6 @@ func (cfg ProjectConfig) validate() error {
 	if _, err := provider.Get(cfg.Provider); err != nil {
 		return err
 	}
-	if strings.TrimSpace(cfg.Project.FolderID) == "" {
-		return fmt.Errorf("project.folder_id is required")
-	}
 	if strings.TrimSpace(cfg.Project.FolderName) == "" {
 		return fmt.Errorf("project.folder_name is required")
 	}
@@ -83,16 +80,23 @@ func writeProjectConfig(cfg Config) error {
 		},
 		Activation: ActivationConfig{Mode: "direnv"},
 	}
-	if err := projectConfig.validate(); err != nil {
-		return fmt.Errorf("could not write project config: %w", err)
-	}
-
-	content, err := toml.Marshal(projectConfig)
+	content, err := encodeProjectConfig(projectConfig)
 	if err != nil {
-		return fmt.Errorf("encode project config: %w", err)
+		return fmt.Errorf("could not write project config: %w", err)
 	}
 	if err := os.WriteFile(".bwenv.toml", content, 0644); err != nil {
 		return fmt.Errorf("write .bwenv.toml: %w", err)
 	}
 	return nil
+}
+
+func encodeProjectConfig(cfg ProjectConfig) ([]byte, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	content, err := toml.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("encode project config: %w", err)
+	}
+	return content, nil
 }

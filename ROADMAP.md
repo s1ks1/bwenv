@@ -1051,6 +1051,9 @@ Important:
 
 For v2.4 it may be optional/experimental.
 
+When migrating an older `.envrc` that has no stable folder ID, `folder_id` may be omitted and
+export must retain the existing folder-name lookup fallback.
+
 For v3 it can become canonical.
 
 ---
@@ -1070,7 +1073,7 @@ Responsibilities:
 - create `.bwenv.toml`;
 - regenerate a thin `.envrc`;
 - preserve behavior;
-- create a backup before destructive changes if necessary.
+- create a restrictive backup before replacing `.envrc`.
 
 Support:
 
@@ -1086,7 +1089,7 @@ Legacy project detected.
 Planned changes:
   + create .bwenv.toml
   ~ regenerate .envrc
-  - remove embedded BW_SESSION from .envrc
+  = retain BW_SESSION in .envrc for v2 compatibility
 
 No secret values will be written to .bwenv.toml.
 
@@ -2622,9 +2625,13 @@ NEW
 
 .envrc
   tiny generated activation command
+  BW_SESSION retained until v3 runtime session management
 ```
 
-The migration should be reversible until validation succeeds.
+The migration should be reversible until validation succeeds. Although v2.4 moves provider,
+folder, and item metadata out of `.envrc`, it must retain `BW_SESSION` to preserve current
+authentication behavior. Session removal is deferred until the v3 runtime session manager is
+available, as recorded in the risk register.
 
 ---
 

@@ -13,6 +13,10 @@
   `.bwenv.toml`; generated `.envrc` files load them with `bwenv export --project`.
 - Existing `.envrc` projects and direct provider/folder export flags remain
   supported. See `docs/migration.md` for the metadata format and compatibility.
+- `bwenv migrate --dry-run` previews legacy project changes; `bwenv migrate`
+  writes canonical metadata and keeps a permission-restricted `.envrc` backup.
+- Migration preserves existing `BW_SESSION` behavior until v3 runtime session
+  management is available, and refuses custom shell code it cannot preserve.
 
 ## v2.3.0 - 2026-09-17
 

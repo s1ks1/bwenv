@@ -89,6 +89,9 @@ func main() {
 		// Run focused, shareable diagnostics without exposing secret values.
 		runDoctor()
 
+	case "migrate":
+		runMigrate(args)
+
 	case "benchmark":
 		runBenchmark(args)
 
@@ -459,6 +462,21 @@ func runDoctor() {
 	}
 }
 
+func runMigrate(args []string) {
+	dryRun := false
+	for _, arg := range args {
+		if arg == "--dry-run" {
+			dryRun = true
+		}
+	}
+	result, err := envrc.MigrateProject(dryRun)
+	if err != nil {
+		ui.PrintError("Migration failed", err)
+		os.Exit(1)
+	}
+	fmt.Print(result)
+}
+
 // parseExportFlags extracts provider, folder, folder ID, and item IDs.
 func parseExportFlags(args []string) (provider, folder, folderID string, itemIDs []string) {
 	for i := 0; i < len(args); i++ {
@@ -529,6 +547,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("refresh    "), descStyle.Render(ui.E("🔄", "->")+` Refresh provider data and reload the environment`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("migrate    "), descStyle.Render(ui.E("🔁", "->")+` Convert a legacy project (use --dry-run to preview)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("doctor     "), descStyle.Render(ui.E("🩺", "->")+` Run safe, shareable setup checks`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("benchmark  "), descStyle.Render(ui.E("⏱️", "->")+` Measure provider calls for this project`))
