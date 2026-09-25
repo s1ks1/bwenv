@@ -85,6 +85,11 @@ type Provider interface {
 	Lock() error
 }
 
+// Syncer is implemented by providers with a separate local sync operation.
+type Syncer interface {
+	Sync() error
+}
+
 // registry holds all registered providers, keyed by their slug.
 var registry = map[string]Provider{}
 

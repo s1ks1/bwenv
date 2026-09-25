@@ -1,9 +1,49 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"testing"
+
+	"github.com/s1ks1/bwenv/internal/process"
 )
+
+type syncTestRunner struct {
+	name    string
+	args    []string
+	streams process.IO
+	err     error
+}
+
+func (r *syncTestRunner) Run(_ context.Context, name string, args []string, streams process.IO) (process.Result, error) {
+	r.name = name
+	r.args = args
+	r.streams = streams
+	return process.Result{}, r.err
+}
+
+func TestBitwardenSyncRunsQuietly(t *testing.T) {
+	runner := &syncTestRunner{}
+	if err := (&Bitwarden{Runner: runner}).Sync(); err != nil {
+		t.Fatalf("Sync() returned error: %v", err)
+	}
+	if runner.name != "bw" || len(runner.args) != 1 || runner.args[0] != "sync" {
+		t.Fatalf("unexpected provider command: %s %v", runner.name, runner.args)
+	}
+	if runner.streams.Stdout != io.Discard || runner.streams.Stderr != io.Discard {
+		t.Fatal("sync output must not be written to the terminal")
+	}
+}
+
+func TestBitwardenSyncReturnsCommandError(t *testing.T) {
+	wantErr := errors.New("command failed")
+	err := (&Bitwarden{Runner: &syncTestRunner{err: wantErr}}).Sync()
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Sync() error = %v, want wrapped %v", err, wantErr)
+	}
+}
 
 func TestBitwardenFolderJSON(t *testing.T) {
 	data := `[{"id":"f1","name":"Dev"},{"id":"f2","name":"Production"}]`
