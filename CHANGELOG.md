@@ -9,6 +9,10 @@
 - `bwenv refresh` syncs Bitwarden on demand and triggers a direnv reload;
   1Password refreshes through its normal provider request without a sync step.
 - Removed the obsolete Auto Sync preference; `bwenv export` remains sync-free.
+- New projects with a stable folder ID store versioned, secret-free references in
+  `.bwenv.toml`; generated `.envrc` files load them with `bwenv export --project`.
+- Existing `.envrc` projects and direct provider/folder export flags remain
+  supported. See `docs/migration.md` for the metadata format and compatibility.
 
 ## v2.3.0 - 2026-09-17
 
