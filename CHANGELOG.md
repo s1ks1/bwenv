@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `bwenv doctor` reports actionable setup checks with output safe to share in
+  issue reports, including FolderID fast-path and `.envrc` permission checks.
+
 ## v2.3.0 - 2026-09-17
 
 ### Performance
