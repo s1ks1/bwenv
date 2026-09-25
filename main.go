@@ -77,10 +77,13 @@ func main() {
 		// "lock" is an alias for "logout" for convenience.
 		runLogout()
 
-	case "status", "test", "doctor":
+	case "status", "test":
 		// Comprehensive status and diagnostics view.
-		// "test" and "doctor" are aliases for "status" (merged command).
 		runStatus()
+
+	case "doctor":
+		// Run focused, shareable diagnostics without exposing secret values.
+		runDoctor()
 
 	case "benchmark":
 		runBenchmark(args)
@@ -265,6 +268,7 @@ func runExamples() {
 	// ── Quick Start ────────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("🚀", ">>")+" Quick Start"))
 	printExample("bwenv init", "Interactive setup — creates .envrc")
+	printExample("bwenv doctor", "Check setup and diagnose common issues")
 	printExample("cd .", "Trigger direnv to load secrets")
 	printExample("env | grep MY_VAR", "Verify secrets are loaded")
 	fmt.Println()
@@ -301,6 +305,7 @@ func runExamples() {
 	// ── Day-to-Day ─────────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("📊", ">>")+" Day-to-Day"))
 	printExample("bwenv login", "Re-authenticate when session expires")
+	printExample("bwenv doctor", "Safe preflight diagnostics")
 	printExample("bwenv status", "Full status + diagnostics")
 	printExample("bwenv config", "Toggle emoji, direnv output, etc.")
 	printExample("bwenv logout", "Lock vaults, end sessions")
@@ -402,6 +407,12 @@ func runStatus() {
 	}
 }
 
+func runDoctor() {
+	if err := ui.RunDoctorFlow(Version); err != nil {
+		os.Exit(1)
+	}
+}
+
 // parseExportFlags extracts provider, folder, folder ID, and item IDs.
 func parseExportFlags(args []string) (provider, folder, folderID string, itemIDs []string) {
 	for i := 0; i < len(args); i++ {
@@ -472,6 +483,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("doctor     "), descStyle.Render(ui.E("🩺", "->")+` Run safe, shareable setup checks`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("benchmark  "), descStyle.Render(ui.E("⏱️", "->")+` Measure provider calls for this project`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("config     "), descStyle.Render(ui.E("⚙️ ", "->")+`  Configure preferences (emoji, direnv output, etc.)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("logout     "), descStyle.Render(ui.E("🔒", "->")+` Lock vaults and terminate active sessions`))
@@ -491,9 +503,10 @@ func printUsage() {
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Quick Start:"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv init            # Interactive setup"))
+	fmt.Printf("    %s\n", exampleStyle.Render("bwenv doctor          # Diagnose setup issues"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv status          # Check everything is working"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv examples        # See all usage examples"))
 	fmt.Println()
 
-	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, doctor/test → status, lock → logout, deny → disallow, settings → config, auth → login"))
+	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, test → status, lock → logout, deny → disallow, settings → config, auth → login"))
 }

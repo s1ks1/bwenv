@@ -53,7 +53,7 @@ environment to understand context. This creates a unique challenge for secrets:
 - **🎨 Beautiful TUI** — Interactive provider and folder selection with arrow keys, search, and filtering
 - **📁 Automatic `.envrc` generation** — Creates direnv-compatible files that auto-load your secrets
 - **🖥️ True cross-platform** — Single binary for Linux, macOS, and Windows (amd64 + arm64)
-- **🔍 Smart diagnostics** — `bwenv status` checks every dependency, session, and config
+- **🔍 Smart diagnostics** — `bwenv doctor` checks setup safely; `bwenv status` shows full context
 - **⚙️ Configurable UI** — Toggle emoji, direnv output, export summaries via `bwenv config`
 - **🔑 Quick re-auth** — Session expired? `bwenv login` re-authenticates and updates your `.envrc` in one step
 - **🔒 Secure logout** — Lock vaults and terminate sessions with `bwenv logout`
@@ -256,10 +256,14 @@ Use this when you're done working with secrets or stepping away from your machin
 ### 6. Status & Diagnostics
 
 ```bash
+bwenv doctor
 bwenv status
 ```
 
-Shows a comprehensive overview of your current bwenv state:
+`bwenv doctor` runs actionable setup checks and returns a non-zero exit code when a required check fails. Its output is safe to share in an issue report: it does not print secret values, session tokens, provider payloads, or project paths. It also identifies older `.envrc` files without a FolderID and recommends regenerating the configuration with `bwenv init`.
+
+`bwenv status` shows a comprehensive overview of your current bwenv state:
+
 - Current directory and `.envrc` info (provider, folder)
 - direnv installation and hook status
 - Provider availability and active sessions
@@ -337,7 +341,8 @@ bwenv/
 │   │   ├── login_flow.go            # Re-authentication flow for expired sessions
 │   │   ├── config_flow.go           # Interactive config editor TUI
 │   │   ├── logout_flow.go           # Vault locking and session termination
-│   │   └── status_flow.go           # Status overview & diagnostics
+│   │   ├── status_flow.go           # Detailed status overview
+│   │   └── doctor_flow.go           # Safe, actionable diagnostics
 │   ├── envrc/
 │   │   └── envrc.go                 # .envrc generation, export, allow/disallow
 │   └── config/

@@ -270,11 +270,12 @@ source ~/.zshrc   # or ~/.bashrc, etc.
 ### Verify Installation
 
 ```bash
-# Run the status check to verify everything is properly configured
+# Run focused diagnostics, then inspect the full status if needed
+bwenv doctor
 bwenv status
 ```
 
-This will show:
+`bwenv doctor` reports setup problems with suggested fixes and can be shared in an issue report. `bwenv status` shows:
 - Whether direnv is installed and its hook is configured
 - Which password manager CLIs are available
 - Current session states

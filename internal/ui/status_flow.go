@@ -1,7 +1,6 @@
 // Package ui — status flow for showing current bwenv state at a glance.
-// This file implements the "bwenv status" command which displays a compact
-// overview of active sessions, .envrc presence, config state, and provider
-// availability without running full diagnostics like "bwenv test".
+// This file implements "bwenv status", a detailed overview of active sessions,
+// .envrc presence, config state, and provider availability.
 package ui
 
 import (
@@ -9,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -18,8 +18,7 @@ import (
 )
 
 // RunStatusFlow displays a comprehensive status overview of the current bwenv state.
-// This is the single diagnostic command — it combines the previous "status" and "test"
-// into one clean output that covers everything:
+// This combines the previous "status" and "test" commands into one detailed view:
 //
 //  1. Current directory & .envrc status
 //  2. Core dependencies (direnv)
@@ -210,6 +209,7 @@ type envrcInfo struct {
 	state    envrcState
 	provider string   // Provider slug extracted from the .envrc (if bwenv-generated).
 	folder   string   // Folder name extracted from the .envrc (if bwenv-generated).
+	folderID string   // Provider folder ID, when the fast lookup path is configured.
 	itemIDs  []string // Specific item IDs extracted from the .envrc (optional).
 }
 
@@ -231,10 +231,11 @@ func checkEnvrcStatus() envrcInfo {
 	info := envrcInfo{state: envrcBwenv}
 
 	// Use the canonical parser from the envrc package.
-	prov, folder, itemIDs, parseErr := envrc.ParseEnvrcConfig()
+	prov, folder, folderID, itemIDs, parseErr := envrc.ParseEnvrcConfigWithFolderID()
 	if parseErr == nil {
 		info.provider = prov
 		info.folder = folder
+		info.folderID = folderID
 		info.itemIDs = itemIDs
 	}
 
@@ -266,33 +267,10 @@ func maskValue(val string) string {
 
 // checkDirenvHook checks if the direnv hook is configured in any shell RC file.
 func checkDirenvHook() {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if rc, ok := findDirenvHook(); ok {
+		shortPath := ShortenHomePath(rc)
+		PrintStatusLine(true, "direnv hook", fmt.Sprintf("found in %s", shortPath))
 		return
-	}
-
-	shellConfigs := []string{
-		filepath.Join(home, ".bashrc"),
-		filepath.Join(home, ".bash_profile"),
-		filepath.Join(home, ".zshrc"),
-		filepath.Join(home, ".zprofile"),
-		filepath.Join(home, ".config", "fish", "config.fish"),
-		filepath.Join(home, ".profile"),
-	}
-
-	for _, rc := range shellConfigs {
-		content, readErr := os.ReadFile(rc)
-		if readErr != nil {
-			continue
-		}
-
-		contentStr := string(content)
-		if strings.Contains(contentStr, "direnv hook") ||
-			strings.Contains(contentStr, "direnv export") {
-			shortPath := ShortenHomePath(rc)
-			PrintStatusLine(true, "direnv hook", fmt.Sprintf("found in %s", shortPath))
-			return
-		}
 	}
 
 	PrintWarningLine("direnv hook", "not found in shell config — add it to your shell RC file")
@@ -309,4 +287,40 @@ func checkDirenvHook() {
 	default:
 		PrintInfoLine("  See:", "https://direnv.net/docs/hook.html")
 	}
+}
+
+func findDirenvHook() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+
+	shellConfigs := []string{
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".bash_profile"),
+		filepath.Join(home, ".zshrc"),
+		filepath.Join(home, ".zprofile"),
+		filepath.Join(home, ".config", "fish", "config.fish"),
+		filepath.Join(home, ".profile"),
+	}
+	if runtime.GOOS == "windows" {
+		shellConfigs = append(shellConfigs,
+			filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+			filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+		)
+	}
+
+	for _, rc := range shellConfigs {
+		content, readErr := os.ReadFile(rc)
+		if readErr != nil {
+			continue
+		}
+
+		contentStr := string(content)
+		if strings.Contains(contentStr, "direnv hook") ||
+			strings.Contains(contentStr, "direnv export") {
+			return rc, true
+		}
+	}
+	return "", false
 }
