@@ -19,6 +19,7 @@ package envrc
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -394,6 +395,44 @@ func ReauthenticateProvider(providerSlug string) (string, error) {
 	}
 
 	return session, nil
+}
+
+// Refresh syncs providers that support it and asks direnv to reload the
+// current project's environment. Secret values are not written by this command.
+func Refresh() (providerName string, synced bool, err error) {
+	providerSlug, _, _, _, err := ParseEnvrcConfigWithFolderID()
+	if err != nil {
+		return "", false, fmt.Errorf("could not read project configuration: %w", err)
+	}
+	p, err := provider.Get(providerSlug)
+	if err != nil {
+		return "", false, fmt.Errorf("could not determine the configured provider")
+	}
+	if !p.IsAvailable() {
+		return "", false, fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
+	}
+	if _, err := exec.LookPath("direnv"); err != nil {
+		return "", false, fmt.Errorf("direnv is not installed; install it before refreshing the environment")
+	}
+	if !p.IsAuthenticated() {
+		return "", false, fmt.Errorf("%s session is not active; run 'bwenv login'", p.Name())
+	}
+	if syncer, ok := p.(provider.Syncer); ok {
+		if err := syncer.Sync(); err != nil {
+			return "", false, err
+		}
+		synced = true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "direnv", "reload")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return p.Name(), synced, fmt.Errorf("direnv could not reload the project environment; check the shell hook and .envrc approval: %w", err)
+	}
+	return p.Name(), synced, nil
 }
 
 // ParseEnvrcConfig reads the .envrc in the current directory and extracts

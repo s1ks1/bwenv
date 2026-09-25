@@ -1,7 +1,7 @@
 // Package ui — config flow for interactive settings management.
 // This file implements the "bwenv config" command which lets users
 // toggle preferences like emoji display, direnv output visibility,
-// export summary display, and auto-sync behavior.
+// and export summary display.
 package ui
 
 import (
@@ -54,12 +54,6 @@ func NewConfigFlow(cfg config.Config) ConfigFlowModel {
 			label:       "Show Export Summary",
 			description: "Show the boxed summary every time secrets are loaded via direnv",
 			enabled:     cfg.ShowExportSummary,
-		},
-		{
-			key:         "auto_sync",
-			label:       "Auto Sync",
-			description: "Automatically sync the vault before fetching secrets (Bitwarden)",
-			enabled:     cfg.AutoSync,
 		},
 	}
 
@@ -218,8 +212,6 @@ func (m ConfigFlowModel) ToConfig() config.Config {
 			cfg.ShowDirenvOutput = opt.enabled
 		case "show_export_summary":
 			cfg.ShowExportSummary = opt.enabled
-		case "auto_sync":
-			cfg.AutoSync = opt.enabled
 		}
 	}
 	return cfg
@@ -287,7 +279,6 @@ func printConfigSummary(cfg config.Config) {
 	PrintKeyValue("Show Emoji", OnOff(cfg.ShowEmoji))
 	PrintKeyValue("Direnv Output", OnOff(cfg.ShowDirenvOutput))
 	PrintKeyValue("Export Summary", OnOff(cfg.ShowExportSummary))
-	PrintKeyValue("Auto Sync", OnOff(cfg.AutoSync))
 	fmt.Println()
 
 	hint := lipgloss.NewStyle().

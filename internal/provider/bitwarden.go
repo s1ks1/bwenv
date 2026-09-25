@@ -125,6 +125,21 @@ func (b *Bitwarden) AuthenticateNonInteractive() (string, error) {
 	return "", fmt.Errorf("session expired or not active — run 'bwenv login' to re-authenticate")
 }
 
+// Sync updates the local Bitwarden vault without exposing CLI output.
+func (b *Bitwarden) Sync() error {
+	runner := b.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := runner.Run(ctx, "bw", []string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil {
+		return fmt.Errorf("Bitwarden sync failed: %w", err)
+	}
+	return nil
+}
+
 // bwFolder is the JSON shape returned by "bw list folders".
 type bwFolder struct {
 	ID   string `json:"id"`

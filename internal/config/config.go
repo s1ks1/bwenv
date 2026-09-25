@@ -29,11 +29,6 @@ type Config struct {
 	// stderr every time direnv loads the .envrc (on every cd into the project).
 	// Default: true
 	ShowExportSummary bool `json:"show_export_summary"`
-
-	// AutoSync controls whether bwenv runs "bw sync" before fetching secrets.
-	// Disabling this can speed up loads if you sync manually.
-	// Default: true
-	AutoSync bool `json:"auto_sync"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -42,7 +37,6 @@ func DefaultConfig() Config {
 		ShowEmoji:         true,
 		ShowDirenvOutput:  false,
 		ShowExportSummary: true,
-		AutoSync:          true,
 	}
 }
 

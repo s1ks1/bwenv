@@ -207,6 +207,14 @@ eval "$(bwenv export --provider bitwarden --folder "MySecrets")"
 eval "$(bwenv export --provider 1password --folder "Production")"
 ```
 
+### Refresh provider data
+
+```bash
+bwenv refresh
+```
+
+Refresh requires an active provider session and a working direnv hook. Bitwarden runs an explicit `bw sync` before direnv reloads the project environment. 1Password has no separate local sync step; direnv re-runs the export against the provider. `bwenv export` remains non-interactive and never syncs, so ordinary directory changes do not trigger a vault sync.
+
 ### 3. Configure Preferences
 
 ```bash
@@ -220,7 +228,6 @@ Opens an interactive settings editor where you can toggle:
 | **Show Emoji** | ON | Display emoji icons in output (turn off for cleaner text-only output) |
 | **Show Direnv Output** | OFF | Show/hide direnv's own loading/unloading messages |
 | **Show Export Summary** | ON | Show the boxed summary when secrets are loaded via direnv |
-| **Auto Sync** | ON | Automatically sync the vault before fetching secrets (Bitwarden) |
 
 Settings are persisted to `~/.config/bwenv/config.json`.
 

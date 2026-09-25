@@ -175,7 +175,6 @@ func RunStatusFlow(version string) error {
 		PrintKeyValue("Emoji", OnOff(cfg.ShowEmoji))
 		PrintKeyValue("Direnv Output", OnOff(cfg.ShowDirenvOutput))
 		PrintKeyValue("Export Summary", OnOff(cfg.ShowExportSummary))
-		PrintKeyValue("Auto Sync", OnOff(cfg.AutoSync))
 	}
 
 	fmt.Println()

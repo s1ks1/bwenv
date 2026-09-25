@@ -6,6 +6,9 @@
 
 - `bwenv doctor` reports actionable setup checks with output safe to share in
   issue reports, including FolderID fast-path and `.envrc` permission checks.
+- `bwenv refresh` syncs Bitwarden on demand and triggers a direnv reload;
+  1Password refreshes through its normal provider request without a sync step.
+- Removed the obsolete Auto Sync preference; `bwenv export` remains sync-free.
 
 ## v2.3.0 - 2026-09-17
 

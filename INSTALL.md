@@ -276,10 +276,19 @@ bwenv status
 ```
 
 `bwenv doctor` reports setup problems with suggested fixes and can be shared in an issue report. `bwenv status` shows:
+
 - Whether direnv is installed and its hook is configured
 - Which password manager CLIs are available
 - Current session states
 - Configuration preferences
+
+### Refresh provider data
+
+```bash
+bwenv refresh
+```
+
+This explicitly syncs Bitwarden before asking direnv to reload the environment. 1Password does not use a separate local sync command; the reload fetches current data through its CLI. `bwenv export` remains non-interactive and does not sync.
 
 ---
 
@@ -325,8 +334,11 @@ In the Bitwarden web vault or app:
 **Step 4: Sync your vault**
 
 ```bash
+# Initial sync before bwenv has a project configuration
 bw sync
 ```
+
+After `bwenv init` has created the project `.envrc`, use `bwenv refresh` for an explicit sync and direnv reload.
 
 ### Bitwarden Test: Interactive Mode
 

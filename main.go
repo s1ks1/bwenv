@@ -72,6 +72,10 @@ func main() {
 		// "auth" is an alias for "login" for convenience.
 		runLogin()
 
+	case "refresh":
+		// Sync provider data where supported and trigger a direnv reload.
+		runRefresh()
+
 	case "logout", "lock":
 		// Lock all provider vaults and terminate sessions.
 		// "lock" is an alias for "logout" for convenience.
@@ -305,6 +309,7 @@ func runExamples() {
 	// ── Day-to-Day ─────────────────────────────────────────
 	fmt.Printf("  %s\n\n", headerStyle.Render(ui.E("📊", ">>")+" Day-to-Day"))
 	printExample("bwenv login", "Re-authenticate when session expires")
+	printExample("bwenv refresh", "Sync and reload project secrets")
 	printExample("bwenv doctor", "Safe preflight diagnostics")
 	printExample("bwenv status", "Full status + diagnostics")
 	printExample("bwenv config", "Toggle emoji, direnv output, etc.")
@@ -398,6 +403,19 @@ func runLogin() {
 	}
 }
 
+func runRefresh() {
+	providerName, synced, err := envrc.Refresh()
+	if err != nil {
+		ui.PrintError("Refresh failed", err)
+		os.Exit(1)
+	}
+	if synced {
+		ui.PrintSuccess(providerName + " synced; direnv reload requested")
+		return
+	}
+	ui.PrintSuccess(providerName + " will refresh through direnv; no separate sync is available")
+}
+
 // runStatus displays a comprehensive overview of the current bwenv state,
 // including diagnostics. This is the merged status + test command.
 func runStatus() {
@@ -482,6 +500,7 @@ func printUsage() {
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Diagnostics & Config:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("login      "), descStyle.Render(ui.E("🔓", "->")+` Re-authenticate and reload secrets (session expired?)`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("refresh    "), descStyle.Render(ui.E("🔄", "->")+` Refresh provider data and reload the environment`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("status     "), descStyle.Render(ui.E("📊", "->")+` Full status overview and diagnostics`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("doctor     "), descStyle.Render(ui.E("🩺", "->")+` Run safe, shareable setup checks`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("benchmark  "), descStyle.Render(ui.E("⏱️", "->")+` Measure provider calls for this project`))
@@ -503,6 +522,7 @@ func printUsage() {
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Quick Start:"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv init            # Interactive setup"))
+	fmt.Printf("    %s\n", exampleStyle.Render("bwenv refresh         # Sync provider and reload secrets"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv doctor          # Diagnose setup issues"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv status          # Check everything is working"))
 	fmt.Printf("    %s\n", exampleStyle.Render("bwenv examples        # See all usage examples"))
