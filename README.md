@@ -211,9 +211,18 @@ bwenv export --project .
 ```
 
 New projects with a stable folder ID also contain a versioned `.bwenv.toml` with provider, folder,
-item references, and activation mode. It contains no secret values; existing `.envrc` projects and
-direct export flags remain supported. See [the migration guide](docs/migration.md) for the format
-and compatibility details.
+item references, and activation mode. It contains no secret values and can be committed; existing
+`.envrc` projects and direct export flags remain supported. See [the migration guide](docs/migration.md)
+for the format and compatibility details.
+
+To move an older generated `.envrc` project to `.bwenv.toml`, preview the changes first:
+
+```bash
+bwenv migrate --dry-run
+bwenv migrate
+```
+
+Migration keeps the original file in `.envrc.bwenv.bak` until you verify the project.
 
 ### Refresh provider data
 
