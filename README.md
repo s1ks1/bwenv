@@ -1,146 +1,146 @@
 <div align="center">
+
   <img src="./assets/Logo.svg" alt="bwenv Logo" width="120"/>
   <h1>🔐 bwenv</h1>
-  <p><strong>Sync secrets from your password manager into your shell environment — beautifully.</strong></p>
+
+  <p><em>Sync secrets from your password manager into your shell environment — beautifully.</em></p>
+
   <p>
-    <a href="#-installation"><img src="https://img.shields.io/badge/install-homebrew%20%7C%20scoop%20%7C%20apt%20%7C%20go-blue" alt="Install"/></a>
+    <a href="#-phase-1-install"><img src="https://img.shields.io/badge/install-homebrew%20%7C%20scoop%20%7C%20apt%20%7C%20go-blue" alt="Install"/></a>
     <a href="https://github.com/s1ks1/bwenv/releases"><img src="https://img.shields.io/github/v/release/s1ks1/bwenv?style=flat&color=green" alt="Release"/></a>
-    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-purple" alt="License"/></a>
     <a href="https://github.com/s1ks1/bwenv/actions"><img src="https://img.shields.io/github/actions/workflow/status/s1ks1/bwenv/release.yml?label=build" alt="Build"/></a>
+    <br/>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-purple" alt="License"/></a>
     <a href="https://goreportcard.com/report/github.com/s1ks1/bwenv"><img src="https://goreportcard.com/badge/github.com/s1ks1/bwenv" alt="Go Report Card"/></a>
   </p>
+
+  <p><strong>📖 Read in five phases</strong></p>
+
+  <table align="center">
+    <tr>
+      <th align="center">📦<br>Install</th>
+      <th align="center">⚡<br>Quick start</th>
+      <th align="center">🔄<br>Everyday use</th>
+      <th align="center">🧩<br>Advanced</th>
+      <th align="center">🔧<br>Development</th>
+    </tr>
+    <tr>
+      <td align="center"><b><a href="#-phase-1-install">Phase 1 →</a></b></td>
+      <td align="center"><b><a href="#-phase-2-quick-start">Phase 2 →</a></b></td>
+      <td align="center"><b><a href="#-phase-3-everyday-use">Phase 3 →</a></b></td>
+      <td align="center"><b><a href="#-phase-4-advanced">Phase 4 →</a></b></td>
+      <td align="center"><b><a href="#-phase-5-development">Phase 5 →</a></b></td>
+    </tr>
+  </table>
+
 </div>
 
-## 🚀 Overview
+---
 
-**bwenv** is a cross-platform CLI tool that bridges your password manager and your shell environment using [direnv](https://direnv.net/). It lets you load secrets from **Bitwarden** or **1Password** directly into your project's environment variables — no manual copy-pasting, no secrets in `.env` files committed to git.
+## 🎯 What is bwenv?
 
-Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lipgloss](https://github.com/charmbracelet/lipgloss) for a fast, beautiful, and truly cross-platform experience.
+**bwenv** bridges your password manager and your shell using [direnv](https://direnv.net/). It loads secrets from **Bitwarden** or **1Password** into your project's environment variables — no copy-pasting, no `.env` files committed to git.
+
+Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lipgloss](https://github.com/charmbracelet/lipgloss). One static binary per platform, zero runtime dependencies beyond your password manager CLI and direnv.
 
 ### Why bwenv?
 
-Managing secrets across projects is painful. `.env` files get committed by accident, tokens expire and break your workflow, and switching between projects means manual copy-pasting. **bwenv** solves this by fetching secrets directly from your vault — live, per-directory, automatically.
+`.env` files get committed by accident, tokens expire and break your workflow, and switching projects means manual copy-pasting. bwenv fetches secrets live from your vault instead — per directory, on every `cd`.
 
-The original bwenv was built around Makefile, Bash, and PowerShell scripts.
-That version worked, but keeping the behavior consistent across macOS, Linux,
-and Windows became harder than it needed to be. The project was rewritten in Go
-for better cross-platform support, simpler installation, and a **single static
-binary** for every platform with zero runtime dependencies beyond your password
-manager CLI and direnv.
+The original bwenv was a collection of Makefile, Bash, and PowerShell scripts. The Go rewrite keeps behavior consistent across macOS, Linux, and Windows with a single static binary.
 
-### Why bwenv for AI Workflows?
+### Why bwenv for AI workflows?
 
-AI coding assistants (Claude Code, Cursor, Copilot, etc.) read your project files and
-environment to understand context. This creates a unique challenge for secrets:
+AI coding assistants read your project files and environment to understand context. bwenv keeps secrets out of that context:
 
-- **Leak prevention** — `.env` files in your project are a risk; AI tools may read or
-  suggest committing them. bwenv keeps secret *values* in your vault and fetches them
-  live — keys and passwords are never written to disk.
-- **AI sees no secret values** — The `.envrc` file contains a reference to
-  `bwenv export` plus, for Bitwarden users, a short-lived session token
-  (`BW_SESSION`). It never contains your keys, passwords, or secret values.
-- **Works with AI in the shell** — Secrets loaded via direnv are available as
-  environment variables that AI tools inherit from the terminal.
-- **No more "oops, I committed the .env"** — There's no `.env` with secret
-  values to commit. Keep `.envrc` itself out of git (add it to `.gitignore`),
-  since it may hold a session token.
-- **Share context safely** — Share your `.bwenv.toml`, folder IDs, or docs with
-  AI freely. Never share or commit `.envrc` while it holds a session token —
-  bwenv writes it `0600`, and the token expires, but treat it as a secret.
+- **Nothing to leak** — secret values stay in your vault and are fetched live; keys and passwords are never written to disk.
+- **AI sees no secret values** — `.envrc` holds only a reference to `bwenv export` and, for Bitwarden, a short-lived session token (`BW_SESSION`).
+- **Available in the shell** — secrets load as environment variables that AI tools inherit from your terminal.
+- **No `.env` to commit** — keep `.envrc` out of git too; bwenv writes it `0600`, and the session token expires, but treat it as a secret.
+- **Share context safely** — share `.bwenv.toml`, folder IDs, or docs with AI freely. Never share `.envrc` while it holds a session token.
 
----
+### Features
 
-## ✨ Features
-
-- **🎯 Pinpoint selection** — Load only specific items from a folder via TUI multi-select or `--items` CLI flag
-- **🔑 Multi-provider support** — Works with Bitwarden (`bw` CLI) and 1Password (`op` CLI)
-- **🎨 Beautiful TUI** — Interactive provider and folder selection with arrow keys, search, and filtering
-- **📁 Automatic `.envrc` generation** — Creates direnv-compatible files that auto-load your secrets
-- **🖥️ True cross-platform** — Single binary for Linux, macOS, and Windows (amd64 + arm64)
+- **🎯 Pinpoint selection** — load specific items via TUI multi-select or the `--items` flag
+- **🔑 Multi-provider** — Bitwarden (`bw`) and 1Password (`op`)
+- **🎨 Interactive TUI** — folder browsing with search and filtering
+- **📁 Automatic `.envrc` generation** — direnv-compatible files that load secrets on `cd`
+- **🖥️ True cross-platform** — Linux, macOS, Windows (amd64 + arm64)
 - **🔍 Smart diagnostics** — `bwenv doctor` checks setup safely; `bwenv status` shows full context
-- **⚙️ Configurable UI** — Toggle emoji, direnv output, export summaries via `bwenv config`
-- **🔑 Quick re-auth** — Session expired? `bwenv login` re-authenticates and updates your `.envrc` in one step
-- **🔒 Secure logout** — Lock vaults and terminate sessions with `bwenv logout`
-- **⚡ Zero runtime dependencies** — Just the Go binary + your password manager CLI + direnv
-- **📦 Easy installation** — Homebrew, Scoop, APT/DNF, `go install`, or direct download
+- **⚙️ Configurable UI** — toggle emoji, direnv output, export summaries via `bwenv config`
+- **🔑 Quick re-auth** — `bwenv login` re-authenticates and updates `.envrc` in one step
+- **🔒 Secure logout** — lock vaults and terminate sessions with `bwenv logout`
 
 ---
 
-## 📦 Prerequisites
+## 📦 Phase 1: Install
+
+### Prerequisites
 
 | Tool | Required? | Description |
 |------|-----------|-------------|
-| [direnv](https://direnv.net/) | **Yes** | Automatically loads/unloads environment variables from `.envrc` files |
-| [Bitwarden CLI](https://bitwarden.com/help/cli/) | One of these | Access your Bitwarden vault from the terminal (`bw`) |
-| [1Password CLI](https://developer.1password.com/docs/cli/) | One of these | Access your 1Password vaults from the terminal (`op`) |
+| [direnv](https://direnv.net/) | **Yes** | Loads and unloads environment variables from `.envrc` files |
+| [Bitwarden CLI](https://bitwarden.com/help/cli/) | One of these | Access your Bitwarden vault (`bw`) |
+| [1Password CLI](https://developer.1password.com/docs/cli/) | One of these | Access your 1Password vaults (`op`) |
 
-> You need **at least one** password manager CLI installed. bwenv will detect what's available and let you choose.
+You need **at least one** password manager CLI. bwenv detects what's installed and lets you choose.
 
-> **Important:** You must be logged into your password manager's CLI **before** running bwenv. Depending on your provider:
-> - **Bitwarden:** Run `bw login` first (one-time setup), then `bwenv init` will prompt for your master password to unlock.
-> - **1Password:** Run `op signin` first, or rely on desktop app biometrics (op v2).
->
-> If you haven't logged into the CLI yet, bwenv will fail at the authentication step. See [INSTALL.md](INSTALL.md) for detailed setup instructions.
+**Log into your password manager CLI before running bwenv:**
 
----
+- **Bitwarden:** run `bw login` once. `bwenv init` then prompts for your master password to unlock.
+- **1Password:** run `op signin`, or rely on desktop app biometrics (op v2).
 
-## 🛠️ Installation
+If the CLI is not logged in, bwenv fails at the authentication step. See [INSTALL.md](INSTALL.md) for detailed setup instructions.
 
-### Homebrew (macOS)
+### Install bwenv
+
+**Homebrew (macOS):**
 
 ```bash
 brew tap s1ks1/bwenv
 brew install --cask bwenv
 ```
 
-### Scoop (Windows)
+**Scoop (Windows):**
 
 ```powershell
 scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
 scoop install bwenv
 ```
 
-### Linux (DEB — Debian / Ubuntu)
-
-Download the `.deb` package from the [latest release](https://github.com/s1ks1/bwenv/releases/latest):
+**Linux (DEB — Debian / Ubuntu):**
 
 ```bash
-# Download (replace VERSION and ARCH as needed)
 curl -LO https://github.com/s1ks1/bwenv/releases/latest/download/bwenv_VERSION_amd64.deb
-
-# Install
 sudo dpkg -i bwenv_*_amd64.deb
 ```
 
-### Linux (RPM — Fedora / RHEL / openSUSE)
+**Linux (RPM — Fedora / RHEL / openSUSE):**
 
 ```bash
-# Download (replace VERSION and ARCH as needed)
 curl -LO https://github.com/s1ks1/bwenv/releases/latest/download/bwenv_VERSION_amd64.rpm
-
-# Install
 sudo rpm -i bwenv_*_amd64.rpm
 ```
 
-### Go Install
+**Go:**
 
 ```bash
 go install github.com/s1ks1/bwenv/v2@latest
 ```
 
-### Quick Install Script
+**Install script (macOS / Linux):**
 
-**macOS / Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
 ```
 
-**Windows (PowerShell):**
+**Install script (Windows PowerShell):**
+
 ```powershell
 irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
 ```
 
-### From Source
+**From source:**
 
 ```bash
 git clone https://github.com/s1ks1/bwenv.git
@@ -149,50 +149,138 @@ make build
 make install
 ```
 
-For local development, use `make run ARGS="status"` to build and run the CLI
-without installing it globally.
+**Direct download:** grab the binary for your platform from the [Releases](https://github.com/s1ks1/bwenv/releases) page, extract it, and put `bwenv` on your `PATH`.
 
-### Direct Download
-
-Download the latest binary for your platform from the [Releases](https://github.com/s1ks1/bwenv/releases) page, extract it, and place `bwenv` somewhere in your `PATH`.
-
-### Verify Installation
+### Verify the install
 
 ```bash
 bwenv status
 ```
 
-> For detailed installation instructions on all platforms, including testing workflows for Bitwarden and 1Password, see [INSTALL.md](INSTALL.md).
+> Full platform-by-platform instructions, including test workflows for Bitwarden and 1Password, are in [INSTALL.md](INSTALL.md).
 
 ---
 
-## ⚡ Usage
+## ⚡ Phase 2: Quick start
 
-### 1. Interactive Setup
+Set up a project in one interactive run:
 
 ```bash
 bwenv init
 ```
 
-This launches a full interactive TUI flow:
+The TUI walks you through five steps:
 
-1. **Select a provider** — Choose between Bitwarden, 1Password (or whichever CLIs you have installed)
-2. **Authenticate** — Unlock your vault or sign in (master password, biometrics, etc.)
-3. **Pick a folder** — Browse, search, and select the folder/vault containing your secrets
-4. **Pick specific items** — Choose individual items to load, or load all items in the folder
-5. **Generate `.envrc`** — A direnv-compatible file is created in the current directory
+1. **Select a provider** — Bitwarden or 1Password (only installed CLIs appear)
+2. **Authenticate** — unlock your vault (master password, biometrics, and so on)
+3. **Pick a folder** — browse and search for the folder that holds your secrets
+4. **Pick items** — load the whole folder or select specific items
+5. **Generate `.envrc`** — bwenv writes the file in the current directory and approves it with direnv
 
-Then just:
+Now load the secrets:
 
 ```bash
-cd .    # Trigger direnv to load secrets
+cd .    # trigger direnv to load secrets
 ```
 
-Your secrets are now loaded as environment variables every time you `cd` into this directory! 🎉
+Your secrets become environment variables. They load on every `cd` into this directory and unload when you leave. 🎉
 
-### 2. Non-Interactive Export
+---
 
-For CI/CD pipelines, scripts, or advanced usage, you can export secrets directly:
+## 🔄 Phase 3: Everyday use
+
+### Session expired? Re-authenticate
+
+```bash
+bwenv login
+```
+
+`bwenv login` detects the provider from your `.envrc`, re-authenticates, updates the session token, and re-approves the file with direnv. It skips provider and folder selection entirely, so it is much faster than running `bwenv init` again.
+
+> **Alias:** `bwenv auth` works too.
+
+### Lock vaults and log out
+
+```bash
+bwenv logout
+```
+
+- **Bitwarden** — runs `bw lock`
+- **1Password** — runs `op signout`
+- Shows any lingering session environment variables and how to clear them
+
+Use it when you're done working with secrets or stepping away from your machine.
+
+### Refresh provider data
+
+```bash
+bwenv refresh
+```
+
+Refresh requires an active provider session and a working direnv hook. Bitwarden runs an explicit `bw sync` before direnv reloads the project environment. 1Password has no separate local sync step; direnv re-runs the export. `bwenv export` itself never syncs, so ordinary directory changes do not trigger a vault sync.
+
+### Check your setup
+
+```bash
+bwenv doctor
+bwenv status
+```
+
+`bwenv doctor` runs actionable setup checks and returns a non-zero exit code when a required check fails. Its output is safe to share in an issue report: no secret values, session tokens, provider payloads, or project paths. It also flags older `.envrc` files without a FolderID and recommends regenerating them with `bwenv init`.
+
+`bwenv status` shows a full overview:
+
+- Current directory and `.envrc` info (provider, folder)
+- direnv installation and hook status
+- Provider availability and active sessions
+- Relevant environment variables (masked)
+- Current config preferences
+
+### Tune the UI
+
+```bash
+bwenv config
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Show Emoji** | ON | Emoji icons in output (off for text-only output) |
+| **Show Direnv Output** | OFF | direnv's own loading/unloading messages |
+| **Show Export Summary** | ON | Boxed summary when secrets load via direnv |
+
+Settings persist to `~/.config/bwenv/config.json`.
+
+### Remove secrets from a project
+
+```bash
+bwenv remove
+```
+
+Deletes the `.envrc` file from the current directory.
+
+### Command cheat sheet
+
+| Command | What it does |
+|---------|--------------|
+| `bwenv init` | Interactive project setup |
+| `bwenv login` (`auth`) | Re-authenticate and update the session in `.envrc` |
+| `bwenv logout` | Lock vaults and terminate sessions |
+| `bwenv refresh` | Sync provider data and reload the environment |
+| `bwenv status` | Full state overview |
+| `bwenv doctor` | Shareable setup diagnostics |
+| `bwenv config` | Edit UI preferences |
+| `bwenv export` | Print secrets as `export KEY=VALUE` lines |
+| `bwenv migrate` | Move a legacy project to `.bwenv.toml` |
+| `bwenv remove` | Delete `.envrc` |
+| `bwenv version` | Print version |
+
+---
+
+## 🧩 Phase 4: Advanced
+
+### Export secrets without the TUI
+
+For CI/CD pipelines, scripts, or advanced usage, export directly:
 
 ```bash
 # Output "export KEY=VALUE" lines to stdout
@@ -214,107 +302,20 @@ eval "$(bwenv export --provider 1password --folder "Production")"
 bwenv export --project .
 ```
 
-New projects with a stable folder ID also contain a versioned `.bwenv.toml` with provider, folder,
-item references, and activation mode. It contains no secret values and can be committed; existing
-`.envrc` projects and direct export flags remain supported. See [the migration guide](docs/migration.md)
-for the format and compatibility details.
+### Project metadata: `.bwenv.toml`
 
-To move an older generated `.envrc` project to `.bwenv.toml`, preview the changes first:
+New projects with a stable folder ID store versioned, secret-free references in `.bwenv.toml`: provider, folder, item references, and activation mode. It contains no secret values and can be committed. Generated `.envrc` files load it with `bwenv export --project .`.
 
-```bash
-bwenv migrate --dry-run
-bwenv migrate
-```
-
-Migration keeps the original file in `.envrc.bwenv.bak` until you verify the project.
-
-### Refresh provider data
+Existing `.envrc` projects and direct export flags keep working. To move an older project to `.bwenv.toml`:
 
 ```bash
-bwenv refresh
+bwenv migrate --dry-run   # preview the changes
+bwenv migrate             # apply them
 ```
 
-Refresh requires an active provider session and a working direnv hook. Bitwarden runs an explicit `bw sync` before direnv reloads the project environment. 1Password has no separate local sync step; direnv re-runs the export against the provider. `bwenv export` remains non-interactive and never syncs, so ordinary directory changes do not trigger a vault sync.
+Migration keeps the original file as `.envrc.bwenv.bak` until you verify the project. See [docs/migration.md](docs/migration.md) for the format and compatibility details.
 
-### 3. Configure Preferences
-
-```bash
-bwenv config
-```
-
-Opens an interactive settings editor where you can toggle:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Show Emoji** | ON | Display emoji icons in output (turn off for cleaner text-only output) |
-| **Show Direnv Output** | OFF | Show/hide direnv's own loading/unloading messages |
-| **Show Export Summary** | ON | Show the boxed summary when secrets are loaded via direnv |
-
-Settings are persisted to `~/.config/bwenv/config.json`.
-
-### 4. Re-authenticate (Session Expired)
-
-```bash
-bwenv login
-```
-
-If your vault session has expired, `bwenv login` will:
-- Detect which provider is configured in your `.envrc`
-- Re-authenticate with that provider (unlock/sign in)
-- Update the session token in your `.envrc`
-- Auto-approve the updated `.envrc` via direnv
-
-This is much faster than running `bwenv init` again — it skips provider and folder selection entirely.
-
-> **Alias:** `bwenv auth` works too.
-
-### 5. Lock Vaults / Logout
-
-```bash
-bwenv logout
-```
-
-Terminates all active provider sessions for security:
-- **Bitwarden** — runs `bw lock` to lock the vault
-- **1Password** — runs `op signout` to end the session
-- Shows any lingering session environment variables and how to clear them
-
-Use this when you're done working with secrets or stepping away from your machine.
-
-### 6. Status & Diagnostics
-
-```bash
-bwenv doctor
-bwenv status
-```
-
-`bwenv doctor` runs actionable setup checks and returns a non-zero exit code when a required check fails. Its output is safe to share in an issue report: it does not print secret values, session tokens, provider payloads, or project paths. It also identifies older `.envrc` files without a FolderID and recommends regenerating the configuration with `bwenv init`.
-
-`bwenv status` shows a comprehensive overview of your current bwenv state:
-
-- Current directory and `.envrc` info (provider, folder)
-- direnv installation and hook status
-- Provider availability and active sessions
-- Relevant environment variables (masked for security)
-- Current config preferences
-
-### 7. Remove Secrets
-
-```bash
-bwenv remove
-```
-
-Deletes the `.envrc` file from the current directory.
-
-### 8. Version
-
-```bash
-bwenv version
-```
-
----
-
-## 🧩 How It Works
+### How bwenv works
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -338,84 +339,109 @@ bwenv version
                                           └──────────────┘
 ```
 
-1. **`bwenv init`** walks you through an interactive setup — pick your provider, folder, and optionally specific items
-2. It generates an `.envrc` file that contains a single `eval` call to `bwenv export`
-3. When direnv loads the `.envrc`, it runs `bwenv export` which fetches fresh secrets from your vault
-4. Each secret's custom fields (Bitwarden) or item fields (1Password) are exported as environment variables
+1. **`bwenv init`** walks you through provider, folder, and item selection.
+2. It generates an `.envrc` with a single `eval` call to `bwenv export`.
+3. When direnv loads `.envrc`, it runs `bwenv export`, which fetches fresh secrets from your vault.
+4. Each secret's custom fields (Bitwarden) or item fields (1Password) become environment variables.
 
-**No secrets are stored on disk** (except session tokens which expire). The `.envrc` fetches secrets live from your vault each time direnv loads it.
+**No secrets are stored on disk** (except session tokens, which expire). Every direnv load fetches secrets live.
+
+### Supported providers
+
+| Provider | CLI Tool | Status | Notes |
+|----------|----------|--------|-------|
+| **Bitwarden** | `bw` | ✅ Ready | Reads custom fields from items in folders |
+| **1Password** | `op` | ✅ Ready | Reads fields from items in vaults |
+
+> Want another provider? [Open an issue](https://github.com/s1ks1/bwenv/issues) or submit a PR. The provider interface is designed to be easy to extend.
+
+### Upgrade from the script-based v1
+
+If you still run the original Makefile, Bash, and PowerShell version:
+
+1. **Uninstall the old version:**
+   ```bash
+   # Installed via the old install.sh or make:
+   rm -f ~/.local/bin/bwenv
+   rm -f ~/.config/direnv/lib/bitwarden_folders.sh
+
+   # Installed via Homebrew:
+   brew uninstall --cask bwenv
+   ```
+
+2. **Install the Go release:**
+   ```bash
+   brew tap s1ks1/bwenv
+   brew install --cask bwenv
+   ```
+
+3. **Re-initialize your projects:**
+   ```bash
+   cd your-project
+   bwenv init    # new interactive TUI flow
+   direnv allow
+   ```
+
+4. **Configure preferences (optional):** `bwenv config`
+
+| | v1 (scripts) | v2 (Go) |
+|---|---|---|
+| Implementation | Makefile, Bash, and PowerShell scripts | Go (single binary) |
+| Providers | Bitwarden only | Bitwarden + 1Password (extensible) |
+| Dependencies | `bw`, `jq`, `direnv` | `bw` or `op`, `direnv` (no `jq` needed!) |
+| UI | Basic terminal prompts | TUI with Bubble Tea + Lipgloss |
+| Windows | `.bat` file with PowerShell fallbacks | Native `.exe` binary |
+| Helper scripts | `bitwarden_folders.sh` + `bwenv` bash script | None — everything is in the single binary |
+| Config | None | Persistent preferences via `bwenv config` |
+| Session management | Manual | `bwenv login` to re-auth, `bwenv logout` to lock vaults |
+| Status overview | None | `bwenv status` for a quick state check |
 
 ---
 
-## 📁 Project Structure
+## 🔧 Phase 5: Development
+
+### Build and test
+
+```bash
+make build                # Build for the current platform → dist/bwenv
+make run                  # Build and run
+make run ARGS="status"    # Build and run with arguments
+make test                 # Run all Go tests
+make lint                 # Run go vet + staticcheck
+make fmt                  # Format all Go source files
+make tidy                 # Clean up go.mod/go.sum
+```
+
+Run `bwenv benchmark` inside a configured project to measure provider calls without displaying secret values. See [docs/performance.md](docs/performance.md) and the [changelog](CHANGELOG.md) for the current development milestone.
+
+### Project structure
 
 ```
 bwenv/
-├── main.go                          # Entry point and CLI routing
-├── INSTALL.md                       # Detailed install & testing guide
-├── install.sh                       # macOS/Linux quick install script
-├── install.ps1                      # Windows quick install script
+├── main.go                  # Entry point and CLI routing
 ├── internal/
-│   ├── provider/
-│   │   ├── provider.go              # Provider interface and registry
-│   │   ├── bitwarden.go             # Bitwarden (bw CLI) implementation
-│   │   └── onepassword.go           # 1Password (op CLI) implementation
-│   ├── ui/
-│   │   ├── styles.go                # Lipgloss color palette and shared styles
-│   │   ├── output.go                # Styled print helpers (success, error, etc.)
-│   │   ├── provider_picker.go       # Bubble Tea model for provider selection
-│   │   ├── folder_picker.go         # Bubble Tea model for folder selection
-│   │   ├── init_flow.go             # Orchestrates the full init TUI flow
-│   │   ├── login_flow.go            # Re-authentication flow for expired sessions
-│   │   ├── config_flow.go           # Interactive config editor TUI
-│   │   ├── logout_flow.go           # Vault locking and session termination
-│   │   ├── status_flow.go           # Detailed status overview
-│   │   └── doctor_flow.go           # Safe, actionable diagnostics
-│   ├── envrc/
-│   │   └── envrc.go                 # .envrc generation, export, allow/disallow
-│   └── config/
-│       └── config.go                # Persistent user preferences (~/.config/bwenv/)
-├── Makefile                         # Build, install, test, release targets
-├── .goreleaser.yml                  # GoReleaser config for cross-platform releases
-├── .github/workflows/               # GitHub Actions workflows
-├── packaging/
-│   ├── homebrew/bwenv.rb            # Homebrew formula template
-│   ├── windows/bwenv.cmd            # Windows command shim
-│   └── scoop/bwenv.json             # Scoop manifest template
-├── LICENSE
-└── README.md
+│   ├── provider/            # Provider interface + Bitwarden and 1Password
+│   ├── ui/                  # TUI flows and styles (Bubble Tea, Lipgloss)
+│   ├── envrc/               # .envrc and .bwenv.toml generation, export, migrate
+│   ├── config/              # Persistent preferences (~/.config/bwenv/)
+│   ├── process/             # Child-process runner
+│   ├── benchmark/           # bwenv benchmark implementation
+│   └── diagnostics/         # doctor and status checks
+├── install.sh               # macOS/Linux quick install script
+├── install.ps1              # Windows quick install script
+├── packaging/               # Homebrew, Scoop, Windows shim
+├── Makefile                 # Build, install, test, release targets
+├── .goreleaser.yml          # GoReleaser config for cross-platform releases
+├── .github/workflows/       # GitHub Actions workflows
+├── docs/                    # Migration guide, performance notes
+├── INSTALL.md               # Detailed install and testing guide
+├── CHANGELOG.md
+└── LICENSE
 ```
 
----
+### Git workflow
 
-## 🔧 Development
-
-### Build
-
-```bash
-make build        # Build for current platform → dist/bwenv
-make run          # Build and run
-make run ARGS="status"  # Build and run with arguments
-```
-
-### Test
-
-```bash
-make test         # Run all Go tests
-make lint         # Run go vet + staticcheck
-make fmt          # Format all Go source files
-make tidy         # Clean up go.mod/go.sum
-```
-
-Run `bwenv benchmark` inside a configured project to measure provider calls
-without displaying secret values. See [performance notes](docs/performance.md)
-and the [changelog](CHANGELOG.md) for the current development milestone.
-
-### Git Workflow
-
-`main` is the stable branch and release source. Work on feature branches, open a
-pull request, and merge the branch back into `main` when checks pass. This keeps
-the history easy to follow and makes a fresh clone straightforward:
+`main` is the stable branch and release source. Work on feature branches, open a pull request, and merge when checks pass. A fresh clone builds immediately:
 
 ```bash
 git clone https://github.com/s1ks1/bwenv.git
@@ -444,72 +470,12 @@ goreleaser release --clean
 make release
 ```
 
-### Adding a New Provider
+### Add a new provider
 
-1. Create a new file in `internal/provider/` (e.g. `doppler.go`)
-2. Implement the `Provider` interface (including the `Lock()` method)
-3. Call `Register(&YourProvider{})` in an `init()` function
-4. That's it — the provider will automatically appear in the TUI picker and CLI flags
-
----
-
-## 🤝 Supported Providers
-
-| Provider | CLI Tool | Status | Notes |
-|----------|----------|--------|-------|
-| **Bitwarden** | `bw` | ✅ Ready | Reads custom fields from items in folders |
-| **1Password** | `op` | ✅ Ready | Reads fields from items in vaults |
-
-> Want another provider? [Open an issue](https://github.com/s1ks1/bwenv/issues) or submit a PR! The provider interface is designed to be easy to extend.
-
----
-
-## 📋 Migration from the Original Version
-
-If you're upgrading from the original Makefile, Bash, and PowerShell version of bwenv, install the
-Go-based release for more consistent support across operating systems:
-
-1. **Uninstall the old version:**
-   ```bash
-   # If installed via the old install.sh or make:
-   rm -f ~/.local/bin/bwenv
-   rm -f ~/.config/direnv/lib/bitwarden_folders.sh
-
-   # If installed via Homebrew:
-   brew uninstall --cask bwenv
-   ```
-
-2. **Install the new version:**
-   ```bash
-   brew tap s1ks1/bwenv
-   brew install --cask bwenv
-   ```
-
-3. **Re-initialize your projects:**
-   ```bash
-   cd your-project
-   bwenv init    # New interactive TUI flow
-   direnv allow
-   ```
-
-4. **Configure preferences (optional):**
-   ```bash
-   bwenv config  # Toggle emoji, direnv output, etc.
-   ```
-
-### What changed?
-
-| | v1 (scripts) | v2 (Go) |
-|---|---|---|
-| Implementation | Makefile, Bash, and PowerShell scripts | Go (single binary) |
-| Providers | Bitwarden only | Bitwarden + 1Password (extensible) |
-| Dependencies | `bw`, `jq`, `direnv` | `bw` or `op`, `direnv` (no `jq` needed!) |
-| UI | Basic terminal prompts | Beautiful TUI with Bubble Tea + Lipgloss |
-| Windows | `.bat` file with PowerShell fallbacks | Native `.exe` binary |
-| Helper scripts | `bitwarden_folders.sh` + `bwenv` bash script | None — everything is in the single binary |
-| Config | None | Persistent preferences via `bwenv config` |
-| Session management | Manual | `bwenv login` to re-auth, `bwenv logout` to lock vaults |
-| Status overview | None | `bwenv status` for quick state check |
+1. Create a file in `internal/provider/` (for example `doppler.go`).
+2. Implement the `Provider` interface, including the `Lock()` method.
+3. Call `Register(&YourProvider{})` in an `init()` function.
+4. The provider appears in the TUI picker and CLI flags automatically.
 
 ---
 
@@ -521,7 +487,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## 🤝 Contributing
 
-Pull requests are welcome! For major changes, please open an issue first to discuss what you'd like to change.
+Pull requests are welcome! For major changes, open an issue first to discuss what you'd like to change.
 
 The codebase is intentionally well-commented to make it easy for contributors who may not be deeply familiar with Go, Bubble Tea, or Lipgloss.
 
