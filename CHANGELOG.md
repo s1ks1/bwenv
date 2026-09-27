@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.1 - 2026-09-27
+
+### Fixed
+
+- `bwenv export --project .` (the command every generated `.envrc` runs) failed
+  with `read .: is a directory` after `bwenv init`; directory project paths now
+  resolve to `<dir>/.bwenv.toml`.
+
 ## v2.4.0 - 2026-09-27
 
 ### Added

@@ -395,6 +395,23 @@ mode = "direnv"
 	}
 }
 
+// --project . passes a directory; LoadProjectConfig must resolve it to
+// <dir>/.bwenv.toml instead of trying to read the directory itself.
+func TestLoadProjectConfigAcceptsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".bwenv.toml"),
+		[]byte("version = 1\nprovider = \"bitwarden\"\n[project]\nfolder_id = \"id\"\nfolder_name = \"Production\"\n[activation]\nmode = \"direnv\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig(%q) returned error: %v", dir, err)
+	}
+	if cfg.Project.FolderID != "id" {
+		t.Fatalf("unexpected project config: %+v", cfg)
+	}
+}
+
 func TestParseEnvrcConfigRejectsInvalidCanonicalConfig(t *testing.T) {
 	dir := t.TempDir()
 	origWd, _ := os.Getwd()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -31,7 +32,12 @@ type ActivationConfig struct {
 }
 
 // LoadProjectConfig reads and validates a canonical bwenv project file.
+// A directory path (the documented `--project .` form) resolves to
+// <dir>/.bwenv.toml.
 func LoadProjectConfig(path string) (ProjectConfig, error) {
+	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+		path = filepath.Join(path, ".bwenv.toml")
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return ProjectConfig{}, fmt.Errorf("read project config %s: %w", path, err)
