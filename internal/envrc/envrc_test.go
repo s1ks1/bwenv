@@ -698,7 +698,7 @@ func TestRefreshSyncsOnlySupportedProvidersBeforeDirenvReload(t *testing.T) {
 		synced   bool
 		wantLog  string
 	}{
-		{provider: "bitwarden", name: "Bitwarden", session: "test-session", synced: true, wantLog: "bw:list folders --session test-session\nbw:sync\ndirenv:reload\n"},
+		{provider: "bitwarden", name: "Bitwarden", session: "test-session", synced: true, wantLog: "bw:list folders\nbw:sync\ndirenv:reload\n"},
 		{provider: "1password", name: "1Password", wantLog: "op:vault list --format=json\ndirenv:reload\n"},
 	} {
 		t.Run(tt.provider, func(t *testing.T) {
@@ -722,7 +722,7 @@ func TestRefreshSyncsOnlySupportedProvidersBeforeDirenvReload(t *testing.T) {
 			t.Setenv("BWENV_REFRESH_LOG", logPath)
 
 			for _, name := range []string{"bw", "op", "direnv"} {
-				script := fmt.Sprintf("#!/bin/sh\nprintf '%s:%%s\\n' \"$*\" >> \"$BWENV_REFRESH_LOG\"\ncase \"$*\" in\n  'list folders --session test-session'|'vault list --format=json') printf '[]' ;;\nesac\n", name)
+				script := fmt.Sprintf("#!/bin/sh\nprintf '%s:%%s\\n' \"$*\" >> \"$BWENV_REFRESH_LOG\"\ncase \"$*\" in\n  'list folders'|'vault list --format=json') printf '[]' ;;\nesac\n", name)
 				if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0700); err != nil {
 					t.Fatal(err)
 				}

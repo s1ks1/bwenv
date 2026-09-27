@@ -1009,11 +1009,7 @@ func exportSecrets(providerSlug string, folderName string, folderID string, item
 			}
 		}
 		if targetFolder.ID == "" {
-			available := make([]string, len(folders))
-			for i, f := range folders {
-				available[i] = f.Name
-			}
-			err := fmt.Errorf("folder %q not found — available: %s", folderName, strings.Join(available, ", "))
+			err := fmt.Errorf("folder %q not found (%d folders available)", folderName, len(folders))
 			printExportError("Folder not found", err)
 			return session, err
 		}

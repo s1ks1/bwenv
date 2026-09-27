@@ -51,13 +51,17 @@ func TestFastExportProviderFailureIsActionableAndSafe(t *testing.T) {
 
 	// envrc.go wraps the provider error as
 	//   "failed to get secrets from folder %q: %w"
-	// where %w carries the CLI's own "provider unavailable" stderr. Assert on
-	// those actual, stable substrings rather than inventing a message.
+	// The bitwarden provider (PER-26) replaces raw CLI stderr with a generic,
+	// actionable message, so assert on that contract rather than on the CLI's
+	// own output.
 	if !strings.Contains(err.Error(), "failed to get secrets from folder") {
 		t.Errorf("error should name the failing operation and folder, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "provider unavailable") {
-		t.Errorf("error should surface the provider context, got: %v", err)
+	if !strings.Contains(err.Error(), "bw returned unexpected output") {
+		t.Errorf("error should surface the generic provider message, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "provider unavailable") {
+		t.Errorf("raw provider output leaked into the error: %v", err)
 	}
 
 	// printExportError renders a labeled box to stderr; the label is stable.

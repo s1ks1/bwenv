@@ -445,8 +445,12 @@ func TestFastExportSessionFailureIsGraceful(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when the session is rejected by the provider CLI")
 		}
-		if !strings.Contains(err.Error(), "locked") && !strings.Contains(err.Error(), "session") {
-			t.Errorf("error should describe the lock/session problem, got: %v", err)
+		if !strings.Contains(err.Error(), "bw returned unexpected output") ||
+			!strings.Contains(err.Error(), "bwenv login") {
+			t.Errorf("error should be generic and point to 'bwenv login', got: %v", err)
+		}
+		if strings.Contains(err.Error(), "Vault is locked") {
+			t.Errorf("raw provider output leaked into the error: %v", err)
 		}
 		for label, text := range map[string]string{"returned error": err.Error(), "stderr": stderr} {
 			if strings.Contains(text, token) {

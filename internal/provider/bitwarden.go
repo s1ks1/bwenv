@@ -42,6 +42,18 @@ func (b *Bitwarden) runInteractive(args []string, streams process.IO) (process.R
 	return runner.Run(context.Background(), "bw", args, streams)
 }
 
+// runWithSession runs bw with the session provided to the child via the
+// BW_SESSION environment variable. The session goes via env, never argv —
+// argv is visible in ps to all local users.
+func (b *Bitwarden) runWithSession(session string, args []string, streams process.IO) (process.Result, error) {
+	streams.Env = append(os.Environ(), "BW_SESSION="+session)
+	return b.run(args, streams)
+}
+
+// bwUnexpected is the generic, leak-free user-facing error for cases that
+// would otherwise embed raw bw stdout/stderr.
+const bwUnexpected = "bw returned unexpected output; run 'bwenv login'"
+
 // init registers the Bitwarden provider in the global registry on startup.
 func init() {
 	Register(&Bitwarden{})
@@ -76,7 +88,7 @@ func (b *Bitwarden) IsAuthenticated() bool {
 	}
 	// Try listing folders to verify the session is still valid.
 	// Capture both stdout and stderr so we can detect error responses.
-	result, err := b.run([]string{"list", "folders", "--session", session}, process.IO{})
+	result, err := b.runWithSession(session, []string{"list", "folders"}, process.IO{})
 	if err != nil {
 		return false
 	}
@@ -150,13 +162,9 @@ type bwFolder struct {
 // Sync is NOT called here — it's done once in Authenticate() to avoid
 // redundant network calls.
 func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
-	result, err := b.run([]string{"list", "folders", "--session", session}, process.IO{})
+	result, err := b.runWithSession(session, []string{"list", "folders"}, process.IO{})
 	if err != nil {
-		stderrStr := strings.TrimSpace(string(result.Stderr))
-		if stderrStr != "" {
-			return nil, fmt.Errorf("failed to list Bitwarden folders: %s", stderrStr)
-		}
-		return nil, fmt.Errorf("failed to list Bitwarden folders: %w (is your session still valid? try 'bwenv login' to re-authenticate)", err)
+		return nil, fmt.Errorf("%s while listing folders: %w", bwUnexpected, err)
 	}
 
 	out := bytes.TrimSpace(result.Stdout)
@@ -175,20 +183,12 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 	// The bw CLI can sometimes return an error message as plain text
 	// (e.g. "Your vault is locked.") instead of JSON.
 	if out[0] != '[' {
-		// Try to give a helpful message from whatever bw returned.
-		preview := string(out)
-		if len(preview) > 200 {
-			preview = preview[:200] + "..."
-		}
-		return nil, fmt.Errorf(
-			"Bitwarden CLI returned unexpected output (expected JSON array):\n    %s\n"+
-				"    Your session may have expired. Run 'bwenv login' to re-authenticate",
-			preview)
+		return nil, fmt.Errorf("%s while listing folders", bwUnexpected)
 	}
 
 	var raw []bwFolder
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse folder list: %w\n    Raw output: %s", err, truncateOutput(out))
+		return nil, fmt.Errorf("%s while listing folders: %w", bwUnexpected, err)
 	}
 
 	folders := make([]Folder, 0, len(raw))
@@ -293,13 +293,9 @@ func (b *Bitwarden) GetSecretsByItemIDs(session string, folder Folder, itemIDs [
 // listItems is the shared implementation that parses the raw bwItem list
 // from "bw list items". Used by both GetSecrets and ListItems.
 func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error) {
-	result, err := b.run([]string{"list", "items", "--folderid", folderID, "--session", session}, process.IO{})
+	result, err := b.runWithSession(session, []string{"list", "items", "--folderid", folderID}, process.IO{})
 	if err != nil {
-		stderrStr := strings.TrimSpace(string(result.Stderr))
-		if stderrStr != "" {
-			return nil, fmt.Errorf("failed to list items in folder %q: %s", folderID, stderrStr)
-		}
-		return nil, fmt.Errorf("failed to list items in folder %q: %w", folderID, err)
+		return nil, fmt.Errorf("%s while listing items in folder %q: %w", bwUnexpected, folderID, err)
 	}
 
 	out := bytes.TrimSpace(result.Stdout)
@@ -312,18 +308,12 @@ func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error)
 	}
 
 	if out[0] != '[' {
-		preview := string(out)
-		if len(preview) > 200 {
-			preview = preview[:200] + "..."
-		}
-		return nil, fmt.Errorf(
-			"Bitwarden CLI returned unexpected output for folder %q (expected JSON array):\n    %s",
-			folderID, preview)
+		return nil, fmt.Errorf("%s while listing items in folder %q", bwUnexpected, folderID)
 	}
 
 	var items []bwItem
 	if err := json.Unmarshal(out, &items); err != nil {
-		return nil, fmt.Errorf("failed to parse items: %w\n    Raw output: %s", err, truncateOutput(out))
+		return nil, fmt.Errorf("%s while listing items in folder %q: %w", bwUnexpected, folderID, err)
 	}
 
 	return items, nil
@@ -337,14 +327,4 @@ func (b *Bitwarden) Lock() error {
 		return fmt.Errorf("failed to lock Bitwarden vault: %w", err)
 	}
 	return nil
-}
-
-// truncateOutput returns a truncated string representation of raw bytes
-// for use in error messages. Limits output to 300 characters.
-func truncateOutput(data []byte) string {
-	s := string(data)
-	if len(s) > 300 {
-		return s[:300] + "..."
-	}
-	return s
 }
