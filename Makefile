@@ -16,7 +16,7 @@
 
 # Application name and module path.
 APP_NAME    := bwenv
-MODULE      := github.com/s1ks1/bwenv
+MODULE      := github.com/s1ks1/bwenv/v2
 
 # Version detection strategy:
 #   1. If the checkout is clean and exactly on a tag, use that tag

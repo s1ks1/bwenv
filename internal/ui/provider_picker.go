@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/internal/provider"
+	"github.com/s1ks1/bwenv/v2/internal/provider"
 )
 
 // ProviderPickerModel is the Bubble Tea model for selecting a secret provider.

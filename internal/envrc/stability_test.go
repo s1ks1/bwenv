@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s1ks1/bwenv/internal/provider"
+	"github.com/s1ks1/bwenv/v2/internal/provider"
 )
 
 // ── helpers ─────────────────────────────────────────────────────────────────

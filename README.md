@@ -125,7 +125,7 @@ sudo rpm -i bwenv_*_amd64.rpm
 ### Go Install
 
 ```bash
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 ```
 
 ### Quick Install Script

@@ -18,6 +18,14 @@
 - Migration preserves existing `BW_SESSION` behavior until v3 runtime session
   management is available, and refuses custom shell code it cannot preserve.
 
+### Fixed
+
+- Migrated the module path to `github.com/s1ks1/bwenv/v2` so
+  `go install github.com/s1ks1/bwenv/v2@latest` works from the next tagged
+  release.
+- Plain `go build` / `go install` now reports a real version derived from build
+  info (module version or VCS revision) instead of the hardcoded `v2.2.0-dev`.
+
 ## v2.3.0 - 2026-09-17
 
 ### Performance

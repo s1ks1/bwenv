@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/s1ks1/bwenv/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
 )
 
 type IO struct {

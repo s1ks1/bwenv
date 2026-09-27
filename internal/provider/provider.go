@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/s1ks1/bwenv/internal/process"
+	"github.com/s1ks1/bwenv/v2/internal/process"
 )
 
 // Secret represents a single key-value pair retrieved from a provider.
