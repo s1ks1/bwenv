@@ -116,7 +116,7 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/1pass
 sudo apt update && sudo apt install -y 1password-cli
 
 # 3. Install bwenv (via Go)
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 
 # OR download the binary directly:
 # Visit https://github.com/s1ks1/bwenv/releases
@@ -142,7 +142,7 @@ sudo sh -c 'echo -e "[1password]\nname=1Password\nbaseurl=https://downloads.1pas
 sudo dnf install -y 1password-cli
 
 # 3. Install bwenv
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 ```
 
 ### Linux (Arch)
@@ -159,7 +159,7 @@ yay -S bitwarden-cli
 yay -S 1password-cli
 
 # 3. Install bwenv
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 ```
 
 ### Windows
@@ -191,7 +191,7 @@ choco install bitwarden-cli
 # OR 1Password CLI — download from https://developer.1password.com/docs/cli/
 
 # 3. Install bwenv via Go
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 ```
 
 ```powershell
@@ -206,7 +206,7 @@ winget install Bitwarden.CLI
 winget install AgileBits.1Password.CLI
 
 # 3. Install bwenv via Go
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 ```
 
 ### From Source (All Platforms)

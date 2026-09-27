@@ -6,17 +6,50 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/internal/benchmark"
-	"github.com/s1ks1/bwenv/internal/envrc"
-	"github.com/s1ks1/bwenv/internal/ui"
+	"github.com/s1ks1/bwenv/v2/internal/benchmark"
+	"github.com/s1ks1/bwenv/v2/internal/envrc"
+	"github.com/s1ks1/bwenv/v2/internal/ui"
 )
 
-// Version is set at build time via -ldflags.
-// Overridden by GoReleaser or Makefile via: -ldflags "-X main.Version=v2.0.0"
-var Version = "v2.2.0-dev"
+// Version is injected at build time via -ldflags (GoReleaser/Makefile).
+// When empty, init derives it from build info (go install pkg@version or VCS).
+var Version = ""
+
+// init resolves Version for plain builds, in order: ldflags → module version
+// → VCS revision → dev fallback.
+func init() {
+	if Version != "" {
+		return
+	}
+	Version = "v2.4.0-dev"
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	if v := bi.Main.Version; v != "" && !strings.HasPrefix(v, "(devel)") {
+		Version = v
+		return
+	}
+	var rev, modified string
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value
+		}
+	}
+	if len(rev) >= 7 {
+		Version = "v2.4.0-dev+" + rev[:7]
+		if modified == "true" {
+			Version += "-dirty"
+		}
+	}
+}
 
 func main() {
 	// Parse command from arguments, skipping any flags.

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/internal/provider"
+	"github.com/s1ks1/bwenv/v2/internal/provider"
 )
 
 // RunLogoutFlow locks all available provider vaults and reports the results.

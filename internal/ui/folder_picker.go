@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/internal/provider"
+	"github.com/s1ks1/bwenv/v2/internal/provider"
 )
 
 // maxVisibleFolders is the maximum number of folders shown at once

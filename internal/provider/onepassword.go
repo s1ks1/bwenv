@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/s1ks1/bwenv/internal/process"
+	"github.com/s1ks1/bwenv/v2/internal/process"
 )
 
 // OnePassword implements the Provider interface using the 1Password CLI.

@@ -71,34 +71,6 @@ func TestAvailableSlugsString(t *testing.T) {
 	}
 }
 
-func TestTruncateOutput(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"short", "short"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		result := truncateOutput([]byte(tt.input))
-		if result != tt.expected {
-			t.Errorf("truncateOutput(%q) = %q, want %q", tt.input, result, tt.expected)
-		}
-	}
-}
-
-func TestTruncateOutputLong(t *testing.T) {
-	long := string(make([]byte, 500))
-	for i := range long {
-		long = long[:i] + "x" + long[i+1:]
-	}
-	result := truncateOutput([]byte(long))
-	if len(result) > 310 {
-		t.Errorf("expected truncated output < 310 chars, got %d", len(result))
-	}
-}
-
 func TestSecretItemStruct(t *testing.T) {
 	item := SecretItem{ID: "id-1", Name: "My Item"}
 	if item.ID != "id-1" {

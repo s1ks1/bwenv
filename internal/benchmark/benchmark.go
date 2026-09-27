@@ -5,9 +5,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/s1ks1/bwenv/internal/diagnostics"
-	"github.com/s1ks1/bwenv/internal/process"
-	"github.com/s1ks1/bwenv/internal/provider"
+	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v2/internal/process"
+	"github.com/s1ks1/bwenv/v2/internal/provider"
 )
 
 // BenchmarkReport contains only timing and process metadata.

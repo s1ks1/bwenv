@@ -34,15 +34,19 @@ AI coding assistants (Claude Code, Cursor, Copilot, etc.) read your project file
 environment to understand context. This creates a unique challenge for secrets:
 
 - **Leak prevention** — `.env` files in your project are a risk; AI tools may read or
-  suggest committing them. bwenv keeps secrets in your vault, never on disk.
-- **AI sees zero secrets** — The `.envrc` file contains only a reference to
-  `bwenv export`; no keys, no tokens, no passwords.
+  suggest committing them. bwenv keeps secret *values* in your vault and fetches them
+  live — keys and passwords are never written to disk.
+- **AI sees no secret values** — The `.envrc` file contains a reference to
+  `bwenv export` plus, for Bitwarden users, a short-lived session token
+  (`BW_SESSION`). It never contains your keys, passwords, or secret values.
 - **Works with AI in the shell** — Secrets loaded via direnv are available as
   environment variables that AI tools inherit from the terminal.
-- **No more "oops, I committed the .env"** — When AI suggests `git add .`,
-  there's nothing sensitive to accidentally include.
-- **Share context safely** — Share your `.envrc` in repos, docs, or with AI
-  without exposing any real credentials.
+- **No more "oops, I committed the .env"** — There's no `.env` with secret
+  values to commit. Keep `.envrc` itself out of git (add it to `.gitignore`),
+  since it may hold a session token.
+- **Share context safely** — Share your `.bwenv.toml`, folder IDs, or docs with
+  AI freely. Never share or commit `.envrc` while it holds a session token —
+  bwenv writes it `0600`, and the token expires, but treat it as a secret.
 
 ---
 
@@ -121,7 +125,7 @@ sudo rpm -i bwenv_*_amd64.rpm
 ### Go Install
 
 ```bash
-go install github.com/s1ks1/bwenv@latest
+go install github.com/s1ks1/bwenv/v2@latest
 ```
 
 ### Quick Install Script

@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
-	"github.com/s1ks1/bwenv/internal/process"
+	"github.com/s1ks1/bwenv/v2/internal/process"
 )
 
 type syncTestRunner struct {
@@ -22,6 +23,56 @@ func (r *syncTestRunner) Run(_ context.Context, name string, args []string, stre
 	r.args = args
 	r.streams = streams
 	return process.Result{}, r.err
+}
+
+// recordingRunner captures every invocation so tests can inspect argv and the
+// child environment without running a real CLI.
+type recordingRunner struct {
+	names []string
+	args  [][]string
+	envs  [][]string
+}
+
+func (r *recordingRunner) Run(_ context.Context, name string, args []string, streams process.IO) (process.Result, error) {
+	r.names = append(r.names, name)
+	r.args = append(r.args, args)
+	r.envs = append(r.envs, streams.Env)
+	return process.Result{}, nil
+}
+
+// TestBitwardenSessionGoesViaEnvNotArgv is the PER-26 regression: the session
+// token must never appear in the child argv (visible in ps) and must be
+// delivered through the BW_SESSION environment variable instead.
+func TestBitwardenSessionGoesViaEnvNotArgv(t *testing.T) {
+	const session = "s3cr3t-session-token"
+	t.Setenv("BW_SESSION", session)
+	runner := &recordingRunner{}
+	b := &Bitwarden{Runner: runner}
+
+	_, _ = b.ListFolders(session)
+	_, _ = b.GetSecrets(session, Folder{ID: "folder-1", Name: "Dev"})
+	_, _ = b.GetSecretsByItemIDs(session, Folder{ID: "folder-1", Name: "Dev"}, []string{"item-1"})
+	_ = b.IsAuthenticated()
+
+	if len(runner.names) == 0 {
+		t.Fatal("no bw invocations recorded")
+	}
+	for i, args := range runner.args {
+		for _, a := range args {
+			if a == "--session" || a == session {
+				t.Errorf("invocation %d leaked session material in argv: %v", i, args)
+			}
+		}
+		var lastSession string
+		for _, kv := range runner.envs[i] {
+			if strings.HasPrefix(kv, "BW_SESSION=") {
+				lastSession = kv
+			}
+		}
+		if lastSession != "BW_SESSION="+session {
+			t.Errorf("invocation %d: last BW_SESSION = %q, want the passed session", i, lastSession)
+		}
+	}
 }
 
 func TestBitwardenSyncRunsQuietly(t *testing.T) {

@@ -7,13 +7,14 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/s1ks1/bwenv/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
 )
 
 type IO struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	Env    []string // optional child environment; nil inherits the parent's
 }
 
 type Result struct {
@@ -50,6 +51,9 @@ func (r ExecRunner) Run(ctx context.Context, name string, args []string, streams
 	}
 	if streams.Stderr != nil {
 		cmd.Stderr = streams.Stderr
+	}
+	if streams.Env != nil {
+		cmd.Env = streams.Env
 	}
 	r.Recorder.AddProcess(name)
 	err := cmd.Run()
