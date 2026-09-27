@@ -43,19 +43,28 @@ Older `.envrc` files without `--folder-id` remain supported and use one extra
 folder-list operation. The fake 1Password fast path uses one item-list and one
 item-detail process for a one-item vault.
 
-## v2.3.0 comparison
-
-The following warm run was measured on the reference macOS machine with two
-exported variables. It is a local observation, not a CI gate.
+## Comparison
 
 | Version | Scenario | Warm time | Provider processes |
 |---|---|---:|---:|
-| v2.2.0 | Bitwarden, full folder | 7182.4 ms | 4 (legacy path) |
-| v2.3.0 | Bitwarden, full folder | 3112.9 ms | 1 (FolderID path) |
+| v2.2.0 | Bitwarden, full folder | 7182.4 ms¹ | 4 (legacy path) |
+| v2.3.0 | Bitwarden, full folder | 3112.9 ms¹ | 1 (FolderID path) |
+| v2.4.0-dev | Bitwarden, full folder, `--folder` only (folder resolution) | 5133.0 ms² | 2 |
+| v2.4.0-dev | Bitwarden, full folder, `--folder-id` (fast path) | 2705.5 ms² | 1 |
 
-The observed improvement is approximately 56.7%. Repeat the measurement several
-times and report the median when comparing another machine or provider CLI
-version.
+¹ Single run (historical, two exported variables); predates the median
+protocol above.
+
+² Median of five warm runs on 2026-09-27, macOS arm64 (Darwin arm64),
+bw CLI 2026.9.0, folder `bvenv` (2 items, 4 variables), no `bw sync`.
+Folder-resolution runs: 5027.5–5230.3 ms. Fast-path runs: 2699.0–2805.1 ms
+after one discarded warm-up.
+
+Relative to the v2.2.0 single-run baseline, the v2.4.0 fast-path median is
+approximately 62.3% lower (7182.4 → 2705.5 ms). Resolving the folder name
+instead of passing `--folder-id` costs roughly 2.4 s extra (one extra
+`bw list folders` process), which is why generated `.envrc` files persist the
+folder ID. All numbers are local observations, not CI gates.
 
 The CI gate should assert process counts and output safety. Wall-clock timing
 is recorded for local comparison, not used as a pass/fail threshold.
