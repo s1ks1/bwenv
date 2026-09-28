@@ -19,12 +19,31 @@ import (
 
 // OnePassword implements the Provider interface using the 1Password CLI.
 type OnePassword struct {
-	Runner           process.Runner
-	SuppressWarnings bool
+	Runner process.Runner
+
+	// Warnings receives non-fatal per-item messages. A nil writer falls back
+	// to os.Stderr; io.Discard silences them.
+	Warnings io.Writer
 }
 
 func (o *OnePassword) withRunner(runner process.Runner) Provider {
-	return &OnePassword{Runner: runner, SuppressWarnings: true}
+	return &OnePassword{Runner: runner, Warnings: io.Discard}
+}
+
+// warnf writes a non-fatal message to the configured warnings writer.
+func (o *OnePassword) warnf(format string, args ...any) {
+	w := o.Warnings
+	if w == nil {
+		w = os.Stderr
+	}
+	fmt.Fprintf(w, "warning: "+format+"\n", args...)
+}
+
+// reportProblems surfaces per-item failures without failing a whole fetch.
+func (o *OnePassword) reportProblems(problems []string) {
+	for _, problem := range problems {
+		o.warnf("%s", problem)
+	}
 }
 
 func (o *OnePassword) run(args []string, streams process.IO) (process.Result, error) {
@@ -179,22 +198,23 @@ type opItemField struct {
 // Items are fetched concurrently (up to 5 at a time) to minimize latency
 // for vaults with many items.
 func (o *OnePassword) GetSecrets(session string, folder Folder) ([]Secret, error) {
-	items, warnings, err := o.listItemsInVault(folder.ID)
+	items, err := o.listItemsInVault(folder.ID)
 	if err != nil {
 		return nil, err
 	}
-	if !o.SuppressWarnings {
-		for _, w := range warnings {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-		}
-	}
 
-	return o.collectSecretsFromItems(items, folder.ID), nil
+	itemIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		itemIDs = append(itemIDs, item.ID)
+	}
+	secrets, problems := o.fetchItemsSecrets(itemIDs, folder.ID)
+	o.reportProblems(problems)
+	return secrets, nil
 }
 
 // ListItems returns all items in the given vault.
 func (o *OnePassword) ListItems(session string, folder Folder) ([]SecretItem, error) {
-	items, _, err := o.listItemsInVault(folder.ID)
+	items, err := o.listItemsInVault(folder.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -211,20 +231,44 @@ func (o *OnePassword) ListItems(session string, folder Folder) ([]SecretItem, er
 }
 
 // GetSecretsByItemIDs retrieves fields only from the specified items.
-// Item IDs are globally unique in 1Password, so no vault specification is needed.
+// Item IDs are globally unique in 1Password, so no vault specification is
+// needed. Unlike the best-effort folder fetch, a selected item that cannot be
+// read is reported as an error so the caller never silently loads fewer secrets.
 func (o *OnePassword) GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error) {
-	type itemResult struct {
-		index   int
-		secrets []Secret
+	secrets, problems := o.fetchItemsSecrets(itemIDs, "")
+	o.reportProblems(problems)
+	if len(problems) > 0 {
+		return secrets, fmt.Errorf("%d of %d selected item(s) could not be fetched", len(problems), len(itemIDs))
+	}
+	return secrets, nil
+}
+
+// listItemsInVault runs "op item list --vault" and returns the parsed items.
+func (o *OnePassword) listItemsInVault(vaultID string) ([]opItem, error) {
+	result, err := o.run([]string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list items in vault %q: %w", vaultID, err)
 	}
 
+	var items []opItem
+	if err := json.Unmarshal(result.Stdout, &items); err != nil {
+		return nil, fmt.Errorf("failed to parse item list: %w", err)
+	}
+
+	return items, nil
+}
+
+// fetchItemsSecrets fetches the given items concurrently (up to five at a time)
+// and returns their secrets in the order of itemIDs, plus one message per item
+// that could not be read. It is the single item-fetch path shared by the folder
+// and selected-item operations. An empty vaultID omits the --vault flag.
+func (o *OnePassword) fetchItemsSecrets(itemIDs []string, vaultID string) ([]Secret, []string) {
 	const maxConcurrency = 5
+
 	sem := make(chan struct{}, maxConcurrency)
-	results := make([]itemResult, len(itemIDs))
+	perItem := make([][]Secret, len(itemIDs))
+	problems := make([]string, len(itemIDs))
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var warnings []string
-	var errors []string
 
 	for i, id := range itemIDs {
 		wg.Add(1)
@@ -233,159 +277,59 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, folder Folder, itemIDs
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			result, getErr := o.run([]string{"item", "get", itemID, "--format=json"}, process.IO{})
-			if getErr != nil {
-				mu.Lock()
-				errors = append(errors, fmt.Sprintf("could not fetch item %q: %v", itemID, getErr))
-				mu.Unlock()
+			args := []string{"item", "get", itemID}
+			if vaultID != "" {
+				args = append(args, "--vault", vaultID)
+			}
+			args = append(args, "--format=json")
+
+			result, err := o.run(args, process.IO{})
+			if err != nil {
+				problems[idx] = fmt.Sprintf("could not fetch item %q: %v", itemID, err)
 				return
 			}
 
 			var detail opItemDetail
-			if parseErr := json.Unmarshal(result.Stdout, &detail); parseErr != nil {
-				mu.Lock()
-				warnings = append(warnings, fmt.Sprintf("could not parse item %q: %v", itemID, parseErr))
-				mu.Unlock()
+			if err := json.Unmarshal(result.Stdout, &detail); err != nil {
+				problems[idx] = fmt.Sprintf("could not parse item %q: %v", itemID, err)
 				return
 			}
-
-			var itemSecrets []Secret
-			for _, field := range detail.Fields {
-				if field.Label == "" {
-					continue
-				}
-				if strings.EqualFold(field.Purpose, "NOTES") {
-					continue
-				}
-				if strings.EqualFold(field.Type, "OTP") {
-					continue
-				}
-				if field.Value == "" {
-					continue
-				}
-				itemSecrets = append(itemSecrets, Secret{
-					Key:   field.Label,
-					Value: field.Value,
-				})
-			}
-
-			results[idx] = itemResult{index: idx, secrets: itemSecrets}
+			perItem[idx] = fieldsToSecrets(detail.Fields)
 		}(i, id)
 	}
 
 	wg.Wait()
 
-	if o.SuppressWarnings && (len(warnings) > 0 || len(errors) > 0) {
-		return nil, fmt.Errorf("%d selected items could not be measured", len(warnings)+len(errors))
-	}
-	if !o.SuppressWarnings {
-		for _, w := range warnings {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-		}
-		for _, e := range errors {
-			fmt.Fprintf(os.Stderr, "error: %s\n", e)
-		}
-	}
-
 	var secrets []Secret
-	for _, r := range results {
-		secrets = append(secrets, r.secrets...)
+	var issues []string
+	for i := range itemIDs {
+		secrets = append(secrets, perItem[i]...)
+		if problems[i] != "" {
+			issues = append(issues, problems[i])
+		}
 	}
-
-	return secrets, nil
+	return secrets, issues
 }
 
-// listItemsInVault runs "op item list --vault" and returns the parsed items
-// along with any warnings encountered.
-func (o *OnePassword) listItemsInVault(vaultID string) ([]opItem, []string, error) {
-	result, err := o.run([]string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list items in vault %q: %w", vaultID, err)
-	}
-
-	var items []opItem
-	if err := json.Unmarshal(result.Stdout, &items); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse item list: %w", err)
-	}
-
-	return items, nil, nil
-}
-
-// collectSecretsFromItems fetches full details for each item concurrently
-// and returns all collected secrets.
-func (o *OnePassword) collectSecretsFromItems(items []opItem, vaultID string) []Secret {
-	type itemResult struct {
-		index   int
-		secrets []Secret
-	}
-
-	const maxConcurrency = 5
-	sem := make(chan struct{}, maxConcurrency)
-	results := make([]itemResult, len(items))
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var warnings []string
-
-	for i, item := range items {
-		wg.Add(1)
-		go func(idx int, it opItem) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			result, getErr := o.run([]string{"item", "get", it.ID, "--vault", vaultID, "--format=json"}, process.IO{})
-			if getErr != nil {
-				mu.Lock()
-				warnings = append(warnings, fmt.Sprintf("could not fetch item %q: %v", it.Title, getErr))
-				mu.Unlock()
-				return
-			}
-
-			var detail opItemDetail
-			if parseErr := json.Unmarshal(result.Stdout, &detail); parseErr != nil {
-				mu.Lock()
-				warnings = append(warnings, fmt.Sprintf("could not parse item %q: %v", it.Title, parseErr))
-				mu.Unlock()
-				return
-			}
-
-			var itemSecrets []Secret
-			for _, field := range detail.Fields {
-				if field.Label == "" {
-					continue
-				}
-				if strings.EqualFold(field.Purpose, "NOTES") {
-					continue
-				}
-				if strings.EqualFold(field.Type, "OTP") {
-					continue
-				}
-				if field.Value == "" {
-					continue
-				}
-				itemSecrets = append(itemSecrets, Secret{
-					Key:   field.Label,
-					Value: field.Value,
-				})
-			}
-
-			results[idx] = itemResult{index: idx, secrets: itemSecrets}
-		}(i, item)
-	}
-
-	wg.Wait()
-
-	if !o.SuppressWarnings {
-		for _, w := range warnings {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-		}
-	}
-
+// fieldsToSecrets maps user-facing item fields to environment variables,
+// skipping unlabeled fields, notes, one-time passwords and empty values.
+func fieldsToSecrets(fields []opItemField) []Secret {
 	var secrets []Secret
-	for _, r := range results {
-		secrets = append(secrets, r.secrets...)
+	for _, field := range fields {
+		if field.Label == "" {
+			continue
+		}
+		if strings.EqualFold(field.Purpose, "NOTES") {
+			continue
+		}
+		if strings.EqualFold(field.Type, "OTP") {
+			continue
+		}
+		if field.Value == "" {
+			continue
+		}
+		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
 	}
-
 	return secrets
 }
 
