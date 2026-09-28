@@ -24,6 +24,8 @@ go.work.sum
 # -- Environment and secrets --
 .env
 .envrc
+# bwenv runtime cache of exported variable names (no values); regenerated on load
+.bwenv_vars
 # Temporary project-migration files; `.envrc.bwenv.bak` matches `*.bak` below.
 .envrc.bwenv-tmp-*
 .bwenv.toml-tmp-*
