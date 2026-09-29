@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
@@ -33,15 +34,15 @@ func MigrateProject(dryRun bool) (string, error) {
 		return "", fmt.Errorf("could not read legacy bwenv settings: %w", err)
 	}
 
-	projectConfig := ProjectConfig{
-		Version:  projectConfigVersion,
+	projectConfig := project.Config{
+		Version:  project.ConfigVersion,
 		Provider: providerSlug,
-		Project:  ProjectMetadata{FolderID: folderID, FolderName: folderName, Items: itemIDs},
-		Activation: ActivationConfig{
+		Project:  project.Metadata{FolderID: folderID, FolderName: folderName, Items: itemIDs},
+		Activation: project.Activation{
 			Mode: "direnv",
 		},
 	}
-	configData, err := encodeProjectConfig(projectConfig)
+	configData, err := project.Encode(projectConfig)
 	if err != nil {
 		return "", fmt.Errorf("legacy settings cannot be migrated: %w", err)
 	}

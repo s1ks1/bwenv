@@ -30,6 +30,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
@@ -198,7 +199,17 @@ func Generate(cfg Config) error {
 	b.WriteString("# Load secrets from the provider into the environment\n")
 	exportCommand := ""
 	if cfg.FolderID != "" {
-		if err := writeProjectConfig(cfg); err != nil {
+		projectCfg := project.Config{
+			Version:  project.ConfigVersion,
+			Provider: cfg.ProviderSlug,
+			Project: project.Metadata{
+				FolderID:   cfg.FolderID,
+				FolderName: cfg.FolderName,
+				Items:      cfg.ItemIDs,
+			},
+			Activation: project.Activation{Mode: "direnv"},
+		}
+		if err := project.Write(".bwenv.toml", projectCfg); err != nil {
 			return err
 		}
 		exportCommand = "bwenv export --project ."
@@ -453,7 +464,7 @@ func ParseEnvrcConfig() (providerSlug string, folderName string, itemIDs []strin
 // ParseEnvrcConfigWithFolderID also returns the persisted provider folder ID.
 // Older .envrc files simply return an empty ID and use the legacy name path.
 func ParseEnvrcConfigWithFolderID() (providerSlug string, folderName string, folderID string, itemIDs []string, err error) {
-	projectConfig, projectErr := LoadProjectConfig(".bwenv.toml")
+	projectConfig, projectErr := project.Load(".bwenv.toml")
 	if projectErr == nil {
 		return projectConfig.Provider, projectConfig.Project.FolderName, projectConfig.Project.FolderID, projectConfig.Project.Items, nil
 	}

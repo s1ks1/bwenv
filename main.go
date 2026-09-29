@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
 	"github.com/s1ks1/bwenv/v3/internal/envrc"
+	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/ui"
 )
 
@@ -201,7 +202,7 @@ func runExport(args []string) {
 			ui.PrintError("Invalid flags", fmt.Errorf("--project cannot be combined with provider, folder, or item flags"))
 			os.Exit(1)
 		}
-		projectConfig, err := envrc.LoadProjectConfig(projectPath)
+		projectConfig, err := project.Load(projectPath)
 		if err != nil {
 			ui.PrintError("Could not read project config", err)
 			os.Exit(1)
