@@ -16,6 +16,7 @@ import (
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
 	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/project"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 	"github.com/s1ks1/bwenv/v3/internal/session"
 	"github.com/s1ks1/bwenv/v3/internal/ui"
 )

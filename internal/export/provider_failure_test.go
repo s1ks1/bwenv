@@ -7,6 +7,7 @@ package export
 
 import (
 	"context"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 	"os"
 	"os/exec"
 	"path/filepath"

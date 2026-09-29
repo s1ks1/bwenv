@@ -1,4 +1,4 @@
-package provider
+package onepassword
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/s1ks1/bwenv/v3/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 func TestOnePasswordVaultJSON(t *testing.T) {
@@ -66,7 +67,7 @@ func TestOnePasswordVaultsToFolders(t *testing.T) {
 		{ID: "v2", Name: "Work"},
 	}
 
-	folders := make([]Folder, 0, len(raw))
+	folders := make([]provider.Folder, 0, len(raw))
 	for _, v := range raw {
 		folders = append(folders, v.ToFolder())
 	}
@@ -89,7 +90,7 @@ func TestOnePasswordFieldToSecret(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, field := range detail.Fields {
 		if field.Label == "" {
 			continue
@@ -103,7 +104,7 @@ func TestOnePasswordFieldToSecret(t *testing.T) {
 		if field.Value == "" {
 			continue
 		}
-		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
 	}
 
 	if len(secrets) != 2 {
@@ -124,7 +125,7 @@ func TestOnePasswordSkipsNotesField(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, field := range detail.Fields {
 		if field.Label == "" {
 			continue
@@ -138,7 +139,7 @@ func TestOnePasswordSkipsNotesField(t *testing.T) {
 		if field.Value == "" {
 			continue
 		}
-		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
 	}
 
 	if len(secrets) != 1 {
@@ -159,7 +160,7 @@ func TestOnePasswordSkipsOTPField(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, field := range detail.Fields {
 		if field.Label == "" {
 			continue
@@ -173,7 +174,7 @@ func TestOnePasswordSkipsOTPField(t *testing.T) {
 		if field.Value == "" {
 			continue
 		}
-		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
 	}
 
 	if len(secrets) != 1 {
@@ -191,7 +192,7 @@ func TestOnePasswordSkipsEmptyValue(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, field := range detail.Fields {
 		if field.Label == "" {
 			continue
@@ -205,7 +206,7 @@ func TestOnePasswordSkipsEmptyValue(t *testing.T) {
 		if field.Value == "" {
 			continue
 		}
-		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
 	}
 
 	if len(secrets) != 1 {
@@ -223,7 +224,7 @@ func TestOnePasswordSkipsEmptyLabel(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, field := range detail.Fields {
 		if field.Label == "" {
 			continue
@@ -237,7 +238,7 @@ func TestOnePasswordSkipsEmptyLabel(t *testing.T) {
 		if field.Value == "" {
 			continue
 		}
-		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
 	}
 
 	if len(secrets) != 1 {
@@ -251,9 +252,9 @@ func TestOnePasswordItemsToSecretItems(t *testing.T) {
 		{ID: "id-2", Title: "Database"},
 	}
 
-	items := make([]SecretItem, 0, len(raw))
+	items := make([]provider.SecretItem, 0, len(raw))
 	for _, item := range raw {
-		items = append(items, SecretItem{ID: item.ID, Name: item.Title})
+		items = append(items, provider.SecretItem{ID: item.ID, Name: item.Title})
 	}
 
 	if len(items) != 2 {
@@ -292,7 +293,7 @@ func TestOnePasswordSelectedItemFailureIsReportedAsError(t *testing.T) {
 	var warnings bytes.Buffer
 	o := &OnePassword{Runner: runner, Warnings: &warnings}
 
-	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", provider.Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
 	if err == nil {
 		t.Fatal("expected an error when a selected item cannot be fetched")
 	}
@@ -317,7 +318,7 @@ func TestOnePasswordSelectedItemsKeepOrderAndSkipNonSecrets(t *testing.T) {
 	var warnings bytes.Buffer
 	o := &OnePassword{Runner: runner, Warnings: &warnings}
 
-	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", provider.Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

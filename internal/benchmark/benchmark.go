@@ -25,7 +25,7 @@ func Benchmark(ctx context.Context, providerSlug, folderName, folderID string, i
 	start := time.Now()
 	p, err := provider.GetWithRunner(providerSlug, process.ExecRunner{Recorder: recorder})
 	if err != nil {
-		return BenchmarkReport{}, fmt.Errorf("unknown provider")
+		return BenchmarkReport{}, fmt.Errorf("provider unavailable: %w", err)
 	}
 	if !p.IsAvailable() {
 		return BenchmarkReport{}, fmt.Errorf("provider CLI is not installed")

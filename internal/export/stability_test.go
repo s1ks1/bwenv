@@ -25,6 +25,7 @@ import (
 	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 

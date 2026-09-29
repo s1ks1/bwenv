@@ -1,7 +1,7 @@
 // Package provider — 1Password implementation.
 // This file wraps the 1Password CLI ("op") to authenticate, list vaults,
 // and retrieve secrets (fields) from vault items.
-package provider
+package onepassword
 
 import (
 	"context"
@@ -15,9 +15,10 @@ import (
 	"sync"
 
 	"github.com/s1ks1/bwenv/v3/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
-// OnePassword implements the Provider interface using the 1Password CLI.
+// OnePassword implements the provider.Provider interface using the 1Password CLI.
 type OnePassword struct {
 	Runner process.Runner
 
@@ -26,7 +27,7 @@ type OnePassword struct {
 	Warnings io.Writer
 }
 
-func (o *OnePassword) withRunner(runner process.Runner) Provider {
+func (o *OnePassword) WithRunner(runner process.Runner) provider.Provider {
 	return &OnePassword{Runner: runner, Warnings: io.Discard}
 }
 
@@ -51,11 +52,11 @@ func (o *OnePassword) run(ctx context.Context, args []string, streams process.IO
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	ctx, cancel := withDefaultTimeout(ctx, defaultTimeout)
+	ctx, cancel := provider.WithDefaultTimeout(ctx, provider.DefaultTimeout)
 	defer cancel()
 	result, err := runner.Run(ctx, "op", args, streams)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return result, fmt.Errorf("%w: op command exceeded its timeout", ErrProviderTimeout)
+		return result, fmt.Errorf("%w: op command exceeded its timeout", provider.ErrProviderTimeout)
 	}
 	return result, err
 }
@@ -70,7 +71,7 @@ func (o *OnePassword) runInteractive(ctx context.Context, args []string, streams
 
 // init registers the 1Password provider in the global registry on startup.
 func init() {
-	Register(&OnePassword{})
+	provider.Register(&OnePassword{})
 }
 
 // Name returns the human-readable provider name.
@@ -121,14 +122,14 @@ func (o *OnePassword) Authenticate(ctx context.Context) (string, error) {
 		if _, err := o.run(ctx, []string{"vault", "list", "--format=json"}, process.IO{}); err == nil {
 			return "", nil
 		}
-		return "", fmt.Errorf("%w: OP_SERVICE_ACCOUNT_TOKEN is set but invalid", ErrNotAuthenticated)
+		return "", fmt.Errorf("%w: OP_SERVICE_ACCOUNT_TOKEN is set but invalid", provider.ErrNotAuthenticated)
 	}
 
 	// Attempt interactive sign-in. The op CLI v2 will open a system
 	// authentication prompt (Touch ID, password dialog, etc.).
 	_, err := o.runInteractive(ctx, []string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
 	if err != nil {
-		return "", fmt.Errorf("%w: failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", ErrNotAuthenticated, err)
+		return "", fmt.Errorf("%w: failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", provider.ErrNotAuthenticated, err)
 	}
 
 	return "", nil
@@ -145,25 +146,25 @@ type opVault struct {
 	Name string `json:"name"`
 }
 
-func (v opVault) ToFolder() Folder {
-	return Folder(v)
+func (v opVault) ToFolder() provider.Folder {
+	return provider.Folder(v)
 }
 
 // ListFolders returns all vaults in the 1Password account.
 // In 1Password, "vaults" are the equivalent of Bitwarden's "folders".
 // The session parameter is unused for op v2 (auth is managed internally).
-func (o *OnePassword) ListFolders(ctx context.Context, session string) ([]Folder, error) {
+func (o *OnePassword) ListFolders(ctx context.Context, session string) ([]provider.Folder, error) {
 	result, err := o.run(ctx, []string{"vault", "list", "--format=json"}, process.IO{})
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to list 1Password vaults: %w", ErrProviderUnavailable, err)
+		return nil, fmt.Errorf("%w: failed to list 1Password vaults: %w", provider.ErrProviderUnavailable, err)
 	}
 
 	var vaults []opVault
 	if err := json.Unmarshal(result.Stdout, &vaults); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse vault list: %w", ErrMalformedProviderResponse, err)
+		return nil, fmt.Errorf("%w: failed to parse vault list: %w", provider.ErrMalformedProviderResponse, err)
 	}
 
-	folders := make([]Folder, 0, len(vaults))
+	folders := make([]provider.Folder, 0, len(vaults))
 	for _, v := range vaults {
 		folders = append(folders, v.ToFolder())
 	}
@@ -194,14 +195,14 @@ type opItemField struct {
 }
 
 // GetSecrets retrieves all fields from items in the given vault and returns
-// them as key-value Secret pairs. Fields without a label are skipped.
+// them as key-value provider.Secret pairs. Fields without a label are skipped.
 // Built-in fields with purpose "NOTES" or system-generated fields (like OTP)
 // are skipped unless they have a meaningful label. We focus on user-defined
 // fields (sections) and the standard username/password fields.
 //
 // Items are fetched concurrently (up to 5 at a time) to minimize latency
 // for vaults with many items.
-func (o *OnePassword) GetSecrets(ctx context.Context, session string, folder Folder) ([]Secret, error) {
+func (o *OnePassword) GetSecrets(ctx context.Context, session string, folder provider.Folder) ([]provider.Secret, error) {
 	items, err := o.listItemsInVault(ctx, folder.ID)
 	if err != nil {
 		return nil, err
@@ -217,15 +218,15 @@ func (o *OnePassword) GetSecrets(ctx context.Context, session string, folder Fol
 }
 
 // ListItems returns all items in the given vault.
-func (o *OnePassword) ListItems(ctx context.Context, session string, folder Folder) ([]SecretItem, error) {
+func (o *OnePassword) ListItems(ctx context.Context, session string, folder provider.Folder) ([]provider.SecretItem, error) {
 	items, err := o.listItemsInVault(ctx, folder.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	secretItems := make([]SecretItem, 0, len(items))
+	secretItems := make([]provider.SecretItem, 0, len(items))
 	for _, item := range items {
-		secretItems = append(secretItems, SecretItem{
+		secretItems = append(secretItems, provider.SecretItem{
 			ID:   item.ID,
 			Name: item.Title,
 		})
@@ -238,7 +239,7 @@ func (o *OnePassword) ListItems(ctx context.Context, session string, folder Fold
 // Item IDs are globally unique in 1Password, so no vault specification is
 // needed. Unlike the best-effort folder fetch, a selected item that cannot be
 // read is reported as an error so the caller never silently loads fewer secrets.
-func (o *OnePassword) GetSecretsByItemIDs(ctx context.Context, session string, folder Folder, itemIDs []string) ([]Secret, error) {
+func (o *OnePassword) GetSecretsByItemIDs(ctx context.Context, session string, folder provider.Folder, itemIDs []string) ([]provider.Secret, error) {
 	secrets, problems := o.fetchItemsSecrets(ctx, itemIDs, "")
 	o.reportProblems(problems)
 	if len(problems) > 0 {
@@ -251,12 +252,12 @@ func (o *OnePassword) GetSecretsByItemIDs(ctx context.Context, session string, f
 func (o *OnePassword) listItemsInVault(ctx context.Context, vaultID string) ([]opItem, error) {
 	result, err := o.run(ctx, []string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to list items in vault %q: %w", ErrProviderUnavailable, vaultID, err)
+		return nil, fmt.Errorf("%w: failed to list items in vault %q: %w", provider.ErrProviderUnavailable, vaultID, err)
 	}
 
 	var items []opItem
 	if err := json.Unmarshal(result.Stdout, &items); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse item list: %w", ErrMalformedProviderResponse, err)
+		return nil, fmt.Errorf("%w: failed to parse item list: %w", provider.ErrMalformedProviderResponse, err)
 	}
 
 	return items, nil
@@ -266,11 +267,11 @@ func (o *OnePassword) listItemsInVault(ctx context.Context, vaultID string) ([]o
 // and returns their secrets in the order of itemIDs, plus one message per item
 // that could not be read. It is the single item-fetch path shared by the folder
 // and selected-item operations. An empty vaultID omits the --vault flag.
-func (o *OnePassword) fetchItemsSecrets(ctx context.Context, itemIDs []string, vaultID string) ([]Secret, []string) {
+func (o *OnePassword) fetchItemsSecrets(ctx context.Context, itemIDs []string, vaultID string) ([]provider.Secret, []string) {
 	const maxConcurrency = 5
 
 	sem := make(chan struct{}, maxConcurrency)
-	perItem := make([][]Secret, len(itemIDs))
+	perItem := make([][]provider.Secret, len(itemIDs))
 	problems := make([]string, len(itemIDs))
 	var wg sync.WaitGroup
 
@@ -304,7 +305,7 @@ func (o *OnePassword) fetchItemsSecrets(ctx context.Context, itemIDs []string, v
 
 	wg.Wait()
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	var issues []string
 	for i := range itemIDs {
 		secrets = append(secrets, perItem[i]...)
@@ -317,8 +318,8 @@ func (o *OnePassword) fetchItemsSecrets(ctx context.Context, itemIDs []string, v
 
 // fieldsToSecrets maps user-facing item fields to environment variables,
 // skipping unlabeled fields, notes, one-time passwords and empty values.
-func fieldsToSecrets(fields []opItemField) []Secret {
-	var secrets []Secret
+func fieldsToSecrets(fields []opItemField) []provider.Secret {
+	var secrets []provider.Secret
 	for _, field := range fields {
 		if field.Label == "" {
 			continue
@@ -332,7 +333,7 @@ func fieldsToSecrets(fields []opItemField) []Secret {
 		if field.Value == "" {
 			continue
 		}
-		secrets = append(secrets, Secret{Key: field.Label, Value: field.Value})
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
 	}
 	return secrets
 }

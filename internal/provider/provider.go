@@ -121,11 +121,11 @@ func GetWithRunner(slug string, runner process.Runner) (Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	cloneable, ok := p.(interface{ withRunner(process.Runner) Provider })
+	cloneable, ok := p.(interface{ WithRunner(process.Runner) Provider })
 	if !ok {
 		return nil, fmt.Errorf("provider %q does not support an injected runner", slug)
 	}
-	return cloneable.withRunner(runner), nil
+	return cloneable.WithRunner(runner), nil
 }
 
 // All returns a list of every registered provider, sorted by name for

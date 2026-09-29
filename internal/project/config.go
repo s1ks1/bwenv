@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 // ConfigVersion is the schema version written to and expected from .bwenv.toml.
@@ -65,8 +64,8 @@ func (cfg Config) Validate() error {
 	if cfg.Version != ConfigVersion {
 		return fmt.Errorf("unsupported version %d (supported: %d)", cfg.Version, ConfigVersion)
 	}
-	if _, err := provider.Get(cfg.Provider); err != nil {
-		return err
+	if strings.TrimSpace(cfg.Provider) == "" {
+		return fmt.Errorf("provider is required")
 	}
 	if strings.TrimSpace(cfg.Project.FolderName) == "" {
 		return fmt.Errorf("project.folder_name is required")
