@@ -44,12 +44,14 @@ func TestInstallIsIdempotentAndDetectable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", "/bin/zsh")
+	chdir(t, t.TempDir())
 	a := &Activator{}
+	cfg := activation.Config{ProviderSlug: "bitwarden", FolderName: "Team", FolderID: "folder-1"}
 
-	if err := a.Install(activation.Config{}); err != nil {
+	if err := a.Install(cfg); err != nil {
 		t.Fatalf("Install() error: %v", err)
 	}
-	if err := a.Install(activation.Config{}); err != nil {
+	if err := a.Install(cfg); err != nil {
 		t.Fatalf("second Install() error: %v", err)
 	}
 
@@ -62,6 +64,13 @@ func TestInstallIsIdempotentAndDetectable(t *testing.T) {
 	}
 	if st := a.Detect(); !st.Configured {
 		t.Fatalf("Detect() = %+v, want Configured", st)
+	}
+	projectConfig, err := project.Load(".bwenv.toml")
+	if err != nil {
+		t.Fatalf("project config missing: %v", err)
+	}
+	if projectConfig.Activation.Mode != "shell" || projectConfig.Project.FolderID != "folder-1" {
+		t.Fatalf("project config = %+v, want canonical shell config", projectConfig)
 	}
 }
 

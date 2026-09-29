@@ -45,7 +45,7 @@ Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/
 
 ### Why bwenv?
 
-`.env` files get committed by accident, tokens expire and break your workflow, and switching projects means manual copy-pasting. bwenv fetches secrets live from your vault instead — per directory, on every `cd`.
+`.env` files get committed by accident, tokens expire and break your workflow, and switching projects means manual copy-pasting. After login in a shell, bwenv fetches secrets live from your vault as you enter configured directories.
 
 The original bwenv was a collection of Makefile, Bash, and PowerShell scripts. The Go rewrite keeps behavior consistent across macOS, Linux, and Windows with a single static binary.
 
@@ -54,10 +54,10 @@ The original bwenv was a collection of Makefile, Bash, and PowerShell scripts. T
 AI coding assistants read your project files and environment to understand context. bwenv keeps secrets out of that context:
 
 - **Nothing to leak** — secret values stay in your vault and are fetched live; keys and passwords are never written to disk.
-- **AI sees no secret values** — `.envrc` holds only a reference to `bwenv export` and, for Bitwarden, a short-lived session token (`BW_SESSION`).
+- **AI sees no secret values** — `.envrc` holds only a reference to `bwenv export`; provider session tokens stay in the current shell, not project files.
 - **Available in the shell** — secrets load as environment variables that AI tools inherit from your terminal.
-- **No `.env` to commit** — keep `.envrc` out of git too; bwenv writes it `0600`, and the session token expires, but treat it as a secret.
-- **Share context safely** — share `.bwenv.toml`, folder IDs, or docs with AI freely. Never share `.envrc` while it holds a session token.
+- **No `.env` to commit** — keep generated `.envrc` out of git; it contains only the activation command and is written with mode `0600`.
+- **Share context safely** — `.bwenv.toml` contains provider references, not credentials. Review custom `.envrc` code before sharing it.
 
 ### Features
 
@@ -177,13 +177,13 @@ The TUI walks you through five steps:
 4. **Pick items** — load the whole folder or select specific items
 5. **Generate `.envrc`** — bwenv writes the file in the current directory and approves it with direnv
 
-Now load the secrets:
+Authenticate and load secrets into this shell:
 
 ```bash
-cd .    # trigger direnv to load secrets
+bwenv login
 ```
 
-Your secrets become environment variables. They load on every `cd` into this directory and unload when you leave. 🎉
+The shell integration evaluates the login output. In shells without the integration, use `eval "$(bwenv login)"` in Bash/Zsh or `eval (bwenv login)` in Fish. Once logged in, direnv loads project secrets on entry and unloads them on exit. Run login again in each new shell session.
 
 ---
 
@@ -195,7 +195,7 @@ Your secrets become environment variables. They load on every `cd` into this dir
 bwenv login
 ```
 
-`bwenv login` detects the provider from your `.envrc`, re-authenticates, updates the session token, and re-approves the file with direnv. It skips provider and folder selection entirely, so it is much faster than running `bwenv init` again.
+`bwenv login` reads the provider from `.bwenv.toml`, authenticates, and loads secrets into the current shell. Run it once in each new shell session. The shell integration installed by `bwenv init` evaluates its output automatically; without that integration, use `eval "$(bwenv login)"` in Bash/Zsh or `eval (bwenv login)` in Fish.
 
 > **Alias:** `bwenv auth` works too.
 
@@ -263,7 +263,7 @@ Deletes the `.envrc` file from the current directory.
 | Command | What it does |
 |---------|--------------|
 | `bwenv init` | Interactive project setup |
-| `bwenv login` (`auth`) | Re-authenticate and update the session in `.envrc` |
+| `bwenv login` (`auth`) | Authenticate and load secrets into the current shell |
 | `bwenv logout` | Lock vaults and terminate sessions |
 | `bwenv refresh` | Sync provider data and reload the environment |
 | `bwenv status` | Full state overview |
@@ -344,7 +344,7 @@ Migration keeps the original file as `.envrc.bwenv.bak` until you verify the pro
 3. When direnv loads `.envrc`, it runs `bwenv export`, which fetches fresh secrets from your vault.
 4. Each secret's custom fields (Bitwarden) or item fields (1Password) become environment variables.
 
-**No secrets are stored on disk** (except session tokens, which expire). Every direnv load fetches secrets live.
+**No secret values or session tokens are stored on disk.** Every direnv load fetches secrets live using the session in the current shell.
 
 ### Supported providers
 

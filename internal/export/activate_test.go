@@ -79,8 +79,8 @@ func TestDeactivateClearsCachedVariables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deactivate() error: %v", err)
 	}
-	if len(names) != 3 { // API_KEY, DB_URL and the appended BW_SESSION
-		t.Fatalf("Deactivate() names = %v, want 3", names)
+	if len(names) != 2 { // API_KEY and DB_URL; sessions are shell runtime state
+		t.Fatalf("Deactivate() names = %v, want 2", names)
 	}
 	if backend.unapproves != 1 {
 		t.Fatalf("expected one unapproval, got %d", backend.unapproves)

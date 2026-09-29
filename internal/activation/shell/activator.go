@@ -53,7 +53,7 @@ func (a *Activator) Render(activation.Config) ([]byte, error) {
 }
 
 // Install appends the hook to the user's shell RC file. It is idempotent.
-func (a *Activator) Install(activation.Config) error {
+func (a *Activator) Install(cfg activation.Config) error {
 	snippet, err := Hook(DetectShell(os.Getenv("SHELL")))
 	if err != nil {
 		return err
@@ -69,7 +69,7 @@ func (a *Activator) Install(activation.Config) error {
 		return fmt.Errorf("could not read %s: %w", display, err)
 	}
 	if strings.Contains(string(content), hookMarker) {
-		return nil
+		return activation.WriteProject(cfg, a.Name())
 	}
 
 	f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -81,7 +81,7 @@ func (a *Activator) Install(activation.Config) error {
 	if _, err := f.WriteString("\n" + snippet + "\n"); err != nil {
 		return fmt.Errorf("failed to append the shell hook to %s: %w", display, err)
 	}
-	return nil
+	return activation.WriteProject(cfg, a.Name())
 }
 
 // Remove is a no-op: editing arbitrary RC files to delete lines automatically is

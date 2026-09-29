@@ -355,7 +355,6 @@ func TestFastExportCanonicalFolderRoundTrip(t *testing.T) {
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				FolderID:     "folder-id-123",
-				Session:      "tok",
 				Version:      testVersion,
 			}); err != nil {
 				t.Fatalf("direnv.Install() with folder %q returned error: %v", name, err)

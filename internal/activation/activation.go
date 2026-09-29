@@ -7,9 +7,13 @@
 package activation
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
+
+	"github.com/s1ks1/bwenv/v3/internal/project"
 )
 
 // Config describes the project a backend must activate. It never contains
@@ -18,7 +22,6 @@ type Config struct {
 	ProviderSlug string
 	FolderName   string
 	FolderID     string
-	Session      string
 	Version      string
 	ItemIDs      []string
 	ItemNames    []string
@@ -95,6 +98,34 @@ func Get(mode string) (Activator, error) {
 		return nil, fmt.Errorf("unknown activation mode %q — available: %s", mode, availableNames())
 	}
 	return a, nil
+}
+
+// ForProject selects the configured activation backend. Projects without
+// canonical metadata are treated as legacy direnv projects.
+func ForProject() (Activator, error) {
+	cfg, err := project.Load(".bwenv.toml")
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return Get("direnv")
+	}
+	return Get(cfg.Activation.Mode)
+}
+
+// WriteProject persists the provider references shared by every activation
+// backend. Session values are deliberately absent from this project model.
+func WriteProject(cfg Config, mode string) error {
+	return project.Write(".bwenv.toml", project.Config{
+		Version:  project.ConfigVersion,
+		Provider: cfg.ProviderSlug,
+		Project: project.Metadata{
+			FolderID:   cfg.FolderID,
+			FolderName: cfg.FolderName,
+			Items:      cfg.ItemIDs,
+		},
+		Activation: project.Activation{Mode: mode},
+	})
 }
 
 // All returns every registered backend, sorted by name for deterministic output.

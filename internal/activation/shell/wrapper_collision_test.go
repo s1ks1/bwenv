@@ -56,6 +56,7 @@ func TestHookInstallNotBlockedByWrapper(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", "/bin/bash")
+	chdir(t, t.TempDir())
 
 	rc := filepath.Join(home, ".bashrc")
 	if err := os.WriteFile(rc, nil, 0644); err != nil {
@@ -65,7 +66,8 @@ func TestHookInstallNotBlockedByWrapper(t *testing.T) {
 		t.Fatalf("InstallWrapper on empty rc = (%v, %v), want (true, nil)", modified, err)
 	}
 
-	if err := (&Activator{}).Install(activation.Config{}); err != nil {
+	cfg := activation.Config{ProviderSlug: "bitwarden", FolderName: "Test", FolderID: "folder-id"}
+	if err := (&Activator{}).Install(cfg); err != nil {
 		t.Fatalf("hook Install after wrapper: %v", err)
 	}
 	content, err := os.ReadFile(rc)

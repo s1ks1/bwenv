@@ -11,13 +11,13 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/activation/shell"
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
 	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/project"
 	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
-	"github.com/s1ks1/bwenv/v3/internal/session"
 	"github.com/s1ks1/bwenv/v3/internal/ui"
 )
 
@@ -164,12 +164,17 @@ func main() {
 func runBenchmark(args []string) {
 	providerSlug, folder, folderID, itemIDs := parseExportFlags(args)
 	if providerSlug == "" && folder == "" {
-		var err error
-		providerSlug, folder, folderID, itemIDs, err = direnv.ParseConfigWithFolderID()
-		if err != nil {
+		activator, activationErr := activation.ForProject()
+		if activationErr != nil {
 			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
 			os.Exit(1)
 		}
+		source, resolveErr := activator.Resolve()
+		if resolveErr != nil {
+			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
+			os.Exit(1)
+		}
+		providerSlug, folder, folderID, itemIDs = source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs
 	}
 	if providerSlug == "" || folder == "" {
 		fmt.Fprintln(os.Stderr, "benchmark: both --provider and --folder are required")
@@ -271,7 +276,7 @@ func parseProjectFlag(args []string) string {
 	return ""
 }
 
-// runAllow approves .envrc in the current directory via direnv and outputs
+// runAllow approves the current project's activation artifact and outputs
 // export statements to stdout. When called through the bwenv shell wrapper
 // (installed by "bwenv init"), the exports are eval'd automatically so
 // variables appear in the current shell.
@@ -286,44 +291,25 @@ func runAllow() {
 		// Direct invocation without the shell wrapper.
 		// Don't print secrets to the terminal — just approve .envrc.
 		//
-		// Before approving, re-authenticate and update .envrc with a fresh
-		// session token. Otherwise direnv re-fires with the stale BW_SESSION
-		// from .envrc and "bwenv export" fails with "session expired".
-		prov, folder, _, _ := direnv.ParseConfig()
-		if prov != "" && folder != "" {
-			session, err := session.Reauthenticate(context.Background(), prov)
-			if err != nil {
-				// Non-fatal — if re-auth fails (e.g. 1Password, no session needed),
-				// we still approve .envrc and let direnv handle it.
-				_ = err
-			} else if session != "" {
-				if updateErr := direnv.UpdateSession(session); updateErr != nil {
-					fmt.Fprintf(os.Stderr, "  %s %s\n",
-						ui.E("⚠️", "[!]"),
-						lipgloss.NewStyle().Foreground(ui.ColorWarning).Render(
-							fmt.Sprintf("Could not update .envrc session: %v", updateErr)))
-				}
-			}
-		}
-
-		if err := direnv.Allow(); err != nil {
+		activator, err := activation.ForProject()
+		if err != nil {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
 		}
-		if prov != "" && folder != "" {
-			fmt.Fprintf(os.Stderr, "  %s %s\n",
-				ui.E("✅", "[OK]"),
-				lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
-					fmt.Sprintf(".envrc approved (%s / %s) — secrets load on next prompt", prov, folder)))
-		} else {
-			fmt.Fprintf(os.Stderr, "  %s %s\n",
-				ui.E("✅", "[OK]"),
-				lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
-					".envrc approved — secrets load on next prompt"))
+		source, err := activator.Resolve()
+		if err != nil {
+			ui.PrintError("Allow failed", err)
+			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "  %s\n",
-			lipgloss.NewStyle().Foreground(ui.ColorMuted).Italic(true).Render(
-				"Tip: restart your shell to enable the bwenv wrapper, then this works automatically."))
+		if err := activator.Approve(); err != nil {
+			ui.PrintError("Allow failed", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "  %s %s\n",
+			ui.E("✅", "[OK]"),
+			lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
+				fmt.Sprintf("%s project approved (%s / %s)", activator.Name(), source.ProviderSlug, source.FolderName)))
+		fmt.Fprintln(os.Stderr, `  Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'eval (bwenv login)' (Fish) to load secrets into this shell.`)
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — approve + export.
 		_, _, err := export.AllowAndExport()
@@ -473,25 +459,18 @@ func runLogout() {
 	}
 }
 
-// runLogin re-authenticates with the provider configured in .envrc and
-// re-exports secrets. This is the quick recovery path when a session expires.
+// runLogin re-authenticates with the provider configured for this project and
+// re-exports secrets into the current shell through the shell wrapper.
 //
 // Like runAllow, it operates in two modes:
-//   - TTY mode (direct invocation): shows a styled flow, authenticates,
-//     verifies folder access, and runs "direnv allow" — then tells the user
-//     to "cd ." to load secrets.
-//   - Pipe mode (via shell wrapper): authenticates, exports secrets + session
-//     token to stdout (eval'd by the wrapper), and runs "direnv allow".
+//   - TTY mode (without the shell wrapper): explains how to evaluate its output.
+//   - Pipe mode (via shell wrapper): exports secrets and the shell-local session.
 func runLogin() {
 	fi, _ := os.Stdout.Stat()
 	isTTY := (fi.Mode() & os.ModeCharDevice) != 0
 
 	if isTTY {
-		// Direct invocation in a terminal — show the interactive flow.
-		if err := ui.RunLoginFlow(Version); err != nil {
-			ui.PrintError("Login failed", err)
-			os.Exit(1)
-		}
+		fmt.Fprintln(os.Stderr, `Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'eval (bwenv login)' (Fish) so the session is set in this shell.`)
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — authenticate + export.
 		_, _, err := export.LoginAndExport()

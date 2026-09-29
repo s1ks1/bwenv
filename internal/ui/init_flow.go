@@ -257,7 +257,6 @@ func RunInitFlow(version string, activationMode string) error {
 		ProviderSlug: chosenProvider.Slug(),
 		FolderName:   chosenFolder.Name,
 		FolderID:     chosenFolder.ID,
-		Session:      session,
 		Version:      version,
 		ItemIDs:      itemIDs,
 		ItemNames:    itemNames,
@@ -437,21 +436,17 @@ func printSuccessSummary(p provider.Provider, folder *provider.Folder, itemNames
 			activateCmd)
 
 		subHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
-			Render("  After that, secrets load automatically when you cd into this directory.")
+			Render("  Then run 'bwenv login' to load secrets into this shell.")
 		fmt.Fprintln(os.Stderr, subHint)
 
 		wrapperHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
 			Render("  Commands like bwenv allow/disallow/remove manage variables directly.")
 		fmt.Fprintln(os.Stderr, wrapperHint)
 	} else {
-		// RC was already set up — everything works out of the box.
+		// The session produced during init belongs to this process, not the shell.
 		hint := lipgloss.NewStyle().Foreground(ColorMuted).
-			Render("Secrets load automatically when you cd into this directory.")
+			Render("Run 'bwenv login' to authenticate and load secrets into this shell.")
 		fmt.Fprintf(os.Stderr, "  %s\n", hint)
-
-		triggerHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
-			Render("  To load now: cd .")
-		fmt.Fprintln(os.Stderr, triggerHint)
 	}
 
 	// If direnv is missing, show a warning.

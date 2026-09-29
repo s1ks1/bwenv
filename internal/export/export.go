@@ -31,24 +31,6 @@ func emojiStr(emoji string, fallback string) string {
 	return config.Emoji(emoji, fallback)
 }
 
-// activatorFor resolves the activation backend selected by the project's
-// activation.mode. A legacy project without .bwenv.toml defaults to direnv.
-// Core secret retrieval depends only on this interface, never on a concrete
-// backend.
-func activatorFor() (activation.Activator, error) {
-	mode := "direnv"
-	cfg, err := project.Load(".bwenv.toml")
-	switch {
-	case err == nil:
-		mode = cfg.Activation.Mode
-	case errors.Is(err, os.ErrNotExist):
-		// Legacy .envrc project — direnv is the stable default backend.
-	default:
-		return nil, err
-	}
-	return activation.Get(mode)
-}
-
 // Activate prepares the nearest project's activation artifact and reports the
 // backend used. It works from any nested subdirectory and is idempotent:
 // activating an already-active project succeeds without duplicating state.
@@ -66,7 +48,7 @@ func Activate() (backend string, err error) {
 		return "", fmt.Errorf("enter project %s: %w", root, err)
 	}
 
-	activator, err := activatorFor()
+	activator, err := activation.ForProject()
 	if err != nil {
 		return "", err
 	}
@@ -155,20 +137,16 @@ var (
 )
 
 // AllowAndExport is the handler for `eval "$(bwenv allow)"`. It:
-//  1. Parses .envrc to get provider/folder info.
+//  1. Resolves the canonical project config (or a legacy direnv project).
 //  2. Authenticates (may prompt for password ONCE).
 //  3. Fetches secrets and prints export lines to stdout.
-//  4. Also exports BW_SESSION (if applicable) and DIRENV_LOG_FORMAT=""
-//     so that when direnv's hook re-fires after eval completes, the
-//     subshell inherits a valid session and stays silent — no second
-//     password prompt.
-//  5. Runs "direnv allow" LAST so the hook fires only after the shell
-//     already has all the right env vars.
+//  4. Exports BW_SESSION to the current shell, never to a project file.
+//  5. Approves the selected activation backend.
 func AllowAndExport() (providerSlug string, folderName string, err error) {
 	ctx := context.Background()
 
 	// Step 1: Resolve the project's activation backend and its secret source.
-	activator, err := activatorFor()
+	activator, err := activation.ForProject()
 	if err != nil {
 		return "", "", err
 	}
@@ -180,26 +158,23 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
-	session, exportErr := ExportInteractive(ctx, providerSlug, folderName, nil)
+	session, exportErr := exportSecrets(ctx, providerSlug, folderName, source.FolderID, source.ItemIDs, true)
 	if exportErr != nil {
 		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
 	}
 
-	// Step 3: Output the fresh session token so the parent shell has it.
-	// When direnv's hook re-fires .envrc, the subshell will inherit this
-	// fresh BW_SESSION from the parent environment, overriding the
-	// potentially stale one in .envrc. No second password prompt.
+	// Step 3: Output the fresh session token so the parent shell can keep it
+	// for this session. It is never written to project files.
 	if session != "" {
 		fmt.Printf("export BW_SESSION=%s\n", shell.Quote(session))
 	}
 
-	// Step 4: Ensure DIRENV_LOG_FORMAT is set in the parent shell so the
-	// hook re-fire uses our styled format instead of the ugly default.
-	fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
-	fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+	if activator.Name() == "direnv" {
+		fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
+		fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+	}
 
-	// Step 5: Approve the activation artifact LAST. The shell now has a fresh
-	// session, so the backend hook re-load is both silent and auth-free.
+	// Step 4: Approve the activation artifact after the session is available.
 	if approveErr := activator.Approve(); approveErr != nil {
 		// Non-fatal — the backend tooling may not be installed.
 		_ = approveErr
@@ -209,12 +184,11 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 }
 
 // LoginAndExport is the handler for `eval "$(bwenv login)"`. It:
-//  1. Parses .envrc to get provider/folder info.
+//  1. Resolves the configured project source.
 //  2. Authenticates interactively (may prompt for master password).
 //  3. Fetches secrets and prints export lines to stdout.
-//  4. Exports the fresh BW_SESSION (if applicable) so the parent shell
-//     inherits a valid token — direnv re-fires silently.
-//  5. Runs "direnv allow" so the .envrc is trusted.
+//  4. Exports the fresh BW_SESSION only to the current shell.
+//  5. Approves the configured activation backend.
 //
 // This is functionally identical to AllowAndExport but semantically different:
 // it's the recovery path when a session expires, while AllowAndExport is the
@@ -223,7 +197,7 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 	ctx := context.Background()
 
 	// Step 1: Resolve the project's activation backend and its secret source.
-	activator, err := activatorFor()
+	activator, err := activation.ForProject()
 	if err != nil {
 		return "", "", err
 	}
@@ -235,7 +209,7 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
-	session, exportErr := ExportInteractive(ctx, providerSlug, folderName, nil)
+	session, exportErr := exportSecrets(ctx, providerSlug, folderName, source.FolderID, source.ItemIDs, true)
 	if exportErr != nil {
 		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
 	}
@@ -245,9 +219,10 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 		fmt.Printf("export BW_SESSION=%s\n", shell.Quote(session))
 	}
 
-	// Step 4: Ensure DIRENV_LOG_FORMAT is set in the parent shell.
-	fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
-	fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+	if activator.Name() == "direnv" {
+		fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
+		fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+	}
 
 	// Step 5: Approve the activation artifact LAST.
 	if approveErr := activator.Approve(); approveErr != nil {
@@ -261,7 +236,7 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 // reload the current project's environment. Secret values are not written.
 func Refresh() (providerName string, synced bool, err error) {
 	ctx := context.Background()
-	activator, err := activatorFor()
+	activator, err := activation.ForProject()
 	if err != nil {
 		return "", false, err
 	}
@@ -303,7 +278,7 @@ func Refresh() (providerName string, synced bool, err error) {
 func DisallowAndUnset() ([]string, error) {
 	varNames := loadCachedVarNames()
 
-	activator, err := activatorFor()
+	activator, err := activation.ForProject()
 	if err != nil {
 		return varNames, err
 	}
@@ -374,8 +349,6 @@ func loadCachedVarNames() []string {
 			}
 		}
 		if len(names) > 0 {
-			// Also add BW_SESSION to unset so stale tokens don't linger.
-			names = append(names, "BW_SESSION")
 			return names
 		}
 	}
@@ -435,11 +408,9 @@ func parseEnvrcVarNames() []string {
 // "export KEY=VALUE" lines to stdout. It also prints a rich, boxed summary
 // to stderr showing which variables were loaded.
 //
-// This function is called by direnv inside .envrc via eval. It NEVER prompts
-// for a password interactively — the session must already be available via
-// BW_SESSION env var (set by the .envrc itself or inherited from the parent
-// shell). If the session is invalid, it fails with a clear error message
-// telling the user to re-run "bwenv init".
+// This function is called by the activation backend. It NEVER prompts for a
+// password interactively; the session must already be available in the current
+// shell's BW_SESSION environment variable.
 //
 // stdout: only "export KEY=VALUE" lines (consumed by eval)
 // stderr: styled box summary for the user (visible in the terminal)
@@ -628,7 +599,7 @@ func Remove() (bool, []string, error) {
 
 	// Revoke the activation backend's approval. Non-fatal: the backend tooling
 	// may not be installed when just cleaning up.
-	if activator, aerr := activatorFor(); aerr == nil {
+	if activator, aerr := activation.ForProject(); aerr == nil {
 		_ = activator.Unapprove()
 	}
 
