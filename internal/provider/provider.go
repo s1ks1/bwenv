@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -49,45 +50,45 @@ type Provider interface {
 	IsAvailable() bool
 
 	// IsAuthenticated checks if the user is currently logged in / has a valid session.
-	IsAuthenticated() bool
+	IsAuthenticated(ctx context.Context) bool
 
 	// Authenticate unlocks or signs in to the provider's vault.
 	// Returns a session token (or empty string if not applicable).
-	Authenticate() (session string, err error)
+	Authenticate(ctx context.Context) (session string, err error)
 
 	// AuthenticateNonInteractive returns the current session without prompting
 	// or performing sync. Hot-path commands use the requested operation itself
 	// to validate access.
-	AuthenticateNonInteractive() (session string, err error)
+	AuthenticateNonInteractive(ctx context.Context) (session string, err error)
 
 	// ListFolders returns all folders/vaults available in the provider.
 	// The session parameter may be needed for providers like Bitwarden.
-	ListFolders(session string) ([]Folder, error)
+	ListFolders(ctx context.Context, session string) ([]Folder, error)
 
 	// GetSecrets retrieves all key-value secrets from the specified folder.
 	// The session parameter may be needed for providers like Bitwarden.
-	GetSecrets(session string, folder Folder) ([]Secret, error)
+	GetSecrets(ctx context.Context, session string, folder Folder) ([]Secret, error)
 
 	// ListItems returns all secret items/entries within the given folder.
 	// Items are displayed in the interactive picker so users can choose
 	// which specific items to load secrets from.
-	ListItems(session string, folder Folder) ([]SecretItem, error)
+	ListItems(ctx context.Context, session string, folder Folder) ([]SecretItem, error)
 
 	// GetSecretsByItemIDs retrieves secrets only from the specified items in a
 	// folder.
 	// When itemIDs is non-empty, this is used instead of GetSecrets so that
 	// users can selectively load only the items they need from a folder.
-	GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error)
+	GetSecretsByItemIDs(ctx context.Context, session string, folder Folder, itemIDs []string) ([]Secret, error)
 
 	// Lock terminates the current session / locks the vault.
 	// For Bitwarden this runs "bw lock", for 1Password "op signout".
 	// Returns nil if the provider has no active session or locking is not applicable.
-	Lock() error
+	Lock(ctx context.Context) error
 }
 
 // Syncer is implemented by providers with a separate local sync operation.
 type Syncer interface {
-	Sync() error
+	Sync(ctx context.Context) error
 }
 
 // registry holds all registered providers, keyed by their slug.

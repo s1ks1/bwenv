@@ -6,6 +6,7 @@ package export
 // patched (same convention as stability_test.go).
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestFastExportProviderFailureIsActionableAndSafe(t *testing.T) {
 	stabilityChdir(t, t.TempDir())
 
 	stdout, stderr, err := stabilityCaptureOutput(t, func() error {
-		return ExportWithFolderID("bitwarden", "Folder", "folder-id", nil)
+		return ExportWithFolderID(context.Background(), "bitwarden", "Folder", "folder-id", nil)
 	})
 	if err == nil {
 		t.Fatal("expected ExportWithFolderID to fail when the provider is unavailable")

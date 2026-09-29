@@ -12,6 +12,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,7 @@ import (
 //
 // Returns an error if any step fails or if the user cancels.
 func RunInitFlow(version string, activationMode string) error {
+	ctx := context.Background()
 	const totalSteps = 7
 
 	PrintBanner(version)
@@ -96,7 +98,7 @@ func RunInitFlow(version string, activationMode string) error {
 	PrintStep(2, totalSteps, E("🔓", "[>]")+" Authenticating with "+chosenProvider.Name()+"...")
 	fmt.Println()
 
-	session, err := chosenProvider.Authenticate()
+	session, err := chosenProvider.Authenticate(ctx)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -107,7 +109,7 @@ func RunInitFlow(version string, activationMode string) error {
 	// -- Step 4: Fetch the folder list --
 	PrintStep(3, totalSteps, E("📂", "[>]")+" Fetching folders from "+chosenProvider.Name()+"...")
 
-	folders, err := chosenProvider.ListFolders(session)
+	folders, err := chosenProvider.ListFolders(ctx, session)
 	if err != nil {
 		return fmt.Errorf("failed to list folders: %w", err)
 	}
@@ -153,7 +155,7 @@ func RunInitFlow(version string, activationMode string) error {
 	var itemIDs []string
 	var itemNames []string
 
-	items, listErr := chosenProvider.ListItems(session, *chosenFolder)
+	items, listErr := chosenProvider.ListItems(ctx, session, *chosenFolder)
 	if listErr != nil {
 		PrintWarning(fmt.Sprintf("Could not list items: %v", listErr))
 		PrintInfo("All items in the folder will be loaded instead.")
@@ -202,9 +204,9 @@ func RunInitFlow(version string, activationMode string) error {
 
 	var varNames []string
 	if len(itemIDs) > 0 {
-		varNames, err = export.PreviewSecretsByIDs(chosenProvider, session, *chosenFolder, itemIDs)
+		varNames, err = export.PreviewSecretsByIDs(ctx, chosenProvider, session, *chosenFolder, itemIDs)
 	} else {
-		varNames, err = export.PreviewSecrets(chosenProvider, session, *chosenFolder)
+		varNames, err = export.PreviewSecrets(ctx, chosenProvider, session, *chosenFolder)
 	}
 	if err != nil {
 		PrintWarning(fmt.Sprintf("Could not preview secrets: %v", err))

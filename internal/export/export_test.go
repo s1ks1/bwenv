@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -400,23 +401,29 @@ type mockProvider struct {
 	getSecretsByIDsErr error
 }
 
-func (m *mockProvider) Name() string                                  { return m.name }
-func (m *mockProvider) Slug() string                                  { return "mock" }
-func (m *mockProvider) Description() string                           { return "Mock provider for testing" }
-func (m *mockProvider) CLICommand() string                            { return "mock" }
-func (m *mockProvider) IsAvailable() bool                             { return true }
-func (m *mockProvider) IsAuthenticated() bool                         { return true }
-func (m *mockProvider) Authenticate() (string, error)                 { return "session", nil }
-func (m *mockProvider) AuthenticateNonInteractive() (string, error)   { return "session", nil }
-func (m *mockProvider) Lock() error                                   { return nil }
-func (m *mockProvider) ListFolders(string) ([]provider.Folder, error) { return nil, nil }
-func (m *mockProvider) ListItems(string, provider.Folder) ([]provider.SecretItem, error) {
+func (m *mockProvider) Name() string                         { return m.name }
+func (m *mockProvider) Slug() string                         { return "mock" }
+func (m *mockProvider) Description() string                  { return "Mock provider for testing" }
+func (m *mockProvider) CLICommand() string                   { return "mock" }
+func (m *mockProvider) IsAvailable() bool                    { return true }
+func (m *mockProvider) IsAuthenticated(context.Context) bool { return true }
+func (m *mockProvider) Authenticate(context.Context) (string, error) {
+	return "session", nil
+}
+func (m *mockProvider) AuthenticateNonInteractive(context.Context) (string, error) {
+	return "session", nil
+}
+func (m *mockProvider) Lock(context.Context) error { return nil }
+func (m *mockProvider) ListFolders(context.Context, string) ([]provider.Folder, error) {
+	return nil, nil
+}
+func (m *mockProvider) ListItems(context.Context, string, provider.Folder) ([]provider.SecretItem, error) {
 	return m.listItemsResult, nil
 }
-func (m *mockProvider) GetSecrets(string, provider.Folder) ([]provider.Secret, error) {
+func (m *mockProvider) GetSecrets(context.Context, string, provider.Folder) ([]provider.Secret, error) {
 	return m.secrets, m.getSecretsErr
 }
-func (m *mockProvider) GetSecretsByItemIDs(string, provider.Folder, []string) ([]provider.Secret, error) {
+func (m *mockProvider) GetSecretsByItemIDs(context.Context, string, provider.Folder, []string) ([]provider.Secret, error) {
 	return m.secretsByIDs, m.getSecretsByIDsErr
 }
 
@@ -428,7 +435,7 @@ func TestPreviewSecrets(t *testing.T) {
 		},
 	}
 
-	names, err := PreviewSecrets(p, "session", provider.Folder{Name: "Test", ID: "id"})
+	names, err := PreviewSecrets(context.Background(), p, "session", provider.Folder{Name: "Test", ID: "id"})
 	if err != nil {
 		t.Fatalf("PreviewSecrets() returned error: %v", err)
 	}
@@ -449,7 +456,7 @@ func TestPreviewSecretsReturnsKeysOnly(t *testing.T) {
 		},
 	}
 
-	names, err := PreviewSecrets(p, "session", provider.Folder{Name: "Test", ID: "id"})
+	names, err := PreviewSecrets(context.Background(), p, "session", provider.Folder{Name: "Test", ID: "id"})
 	if err != nil {
 		t.Fatalf("PreviewSecrets() returned error: %v", err)
 	}
@@ -468,7 +475,7 @@ func TestPreviewSecretsByIDs(t *testing.T) {
 		},
 	}
 
-	names, err := PreviewSecretsByIDs(p, "session", provider.Folder{Name: "Test", ID: "id"}, []string{"item-1"})
+	names, err := PreviewSecretsByIDs(context.Background(), p, "session", provider.Folder{Name: "Test", ID: "id"}, []string{"item-1"})
 	if err != nil {
 		t.Fatalf("PreviewSecretsByIDs() returned error: %v", err)
 	}

@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ import (
 //  5. Relevant environment variables
 //  6. Current config preferences
 func RunStatusFlow(version string) error {
+	ctx := context.Background()
 	PrintBanner(version)
 	fmt.Println()
 
@@ -97,7 +99,7 @@ func RunStatusFlow(version string) error {
 
 			availableCount++
 
-			if p.IsAuthenticated() {
+			if p.IsAuthenticated(ctx) {
 				activeCount++
 				PrintStatusLine(true, p.Name(),
 					lipgloss.NewStyle().Foreground(ColorSuccess).Render("session active"))

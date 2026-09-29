@@ -9,6 +9,7 @@ package export
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -52,6 +53,8 @@ func activatorFor() (activation.Activator, error) {
 // backend used. It works from any nested subdirectory and is idempotent:
 // activating an already-active project succeeds without duplicating state.
 func Activate() (backend string, err error) {
+	ctx := context.Background()
+
 	root, err := project.FindRoot(".")
 	if err != nil {
 		return "", err
@@ -74,7 +77,7 @@ func Activate() (backend string, err error) {
 		if err != nil {
 			return "", err
 		}
-		if err := ExportWithFolderID(source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs); err != nil {
+		if err := ExportWithFolderID(ctx, source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs); err != nil {
 			return "", err
 		}
 		return activator.Name(), nil
@@ -162,6 +165,8 @@ var (
 //  5. Runs "direnv allow" LAST so the hook fires only after the shell
 //     already has all the right env vars.
 func AllowAndExport() (providerSlug string, folderName string, err error) {
+	ctx := context.Background()
+
 	// Step 1: Resolve the project's activation backend and its secret source.
 	activator, err := activatorFor()
 	if err != nil {
@@ -175,7 +180,7 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
-	session, exportErr := ExportInteractive(providerSlug, folderName, nil)
+	session, exportErr := ExportInteractive(ctx, providerSlug, folderName, nil)
 	if exportErr != nil {
 		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
 	}
@@ -215,6 +220,8 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 // it's the recovery path when a session expires, while AllowAndExport is the
 // initial approval path. Having a distinct "login" command makes the UX clearer.
 func LoginAndExport() (providerSlug string, folderName string, err error) {
+	ctx := context.Background()
+
 	// Step 1: Resolve the project's activation backend and its secret source.
 	activator, err := activatorFor()
 	if err != nil {
@@ -228,7 +235,7 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
-	session, exportErr := ExportInteractive(providerSlug, folderName, nil)
+	session, exportErr := ExportInteractive(ctx, providerSlug, folderName, nil)
 	if exportErr != nil {
 		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
 	}
@@ -253,6 +260,7 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 // Refresh syncs providers that support it and asks the activation backend to
 // reload the current project's environment. Secret values are not written.
 func Refresh() (providerName string, synced bool, err error) {
+	ctx := context.Background()
 	activator, err := activatorFor()
 	if err != nil {
 		return "", false, err
@@ -268,11 +276,11 @@ func Refresh() (providerName string, synced bool, err error) {
 	if !p.IsAvailable() {
 		return "", false, fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
 	}
-	if !p.IsAuthenticated() {
+	if !p.IsAuthenticated(ctx) {
 		return "", false, fmt.Errorf("%s session is not active; run 'bwenv login'", p.Name())
 	}
 	if syncer, ok := p.(provider.Syncer); ok {
-		if err := syncer.Sync(); err != nil {
+		if err := syncer.Sync(ctx); err != nil {
 			return "", false, err
 		}
 		synced = true
@@ -431,14 +439,14 @@ func parseEnvrcVarNames() []string {
 //
 // stdout: only "export KEY=VALUE" lines (consumed by eval)
 // stderr: styled box summary for the user (visible in the terminal)
-func Export(providerSlug string, folderName string, itemIDs []string) error {
-	return ExportWithFolderID(providerSlug, folderName, "", itemIDs)
+func Export(ctx context.Context, providerSlug string, folderName string, itemIDs []string) error {
+	return ExportWithFolderID(ctx, providerSlug, folderName, "", itemIDs)
 }
 
 // ExportWithFolderID is the non-interactive export path used by generated
 // .envrc files. An empty folderID keeps compatibility with older projects.
-func ExportWithFolderID(providerSlug string, folderName string, folderID string, itemIDs []string) error {
-	_, err := exportSecrets(providerSlug, folderName, folderID, itemIDs, false)
+func ExportWithFolderID(ctx context.Context, providerSlug string, folderName string, folderID string, itemIDs []string) error {
+	_, err := exportSecrets(ctx, providerSlug, folderName, folderID, itemIDs, false)
 	return err
 }
 
@@ -446,14 +454,14 @@ func ExportWithFolderID(providerSlug string, folderName string, folderID string,
 // (prompting for a master password). This is used by "bwenv allow" where
 // the user explicitly runs bwenv and expects to enter their password once.
 // Returns the session token so the caller can propagate it.
-func ExportInteractive(providerSlug string, folderName string, itemIDs []string) (string, error) {
-	return exportSecrets(providerSlug, folderName, "", itemIDs, true)
+func ExportInteractive(ctx context.Context, providerSlug string, folderName string, itemIDs []string) (string, error) {
+	return exportSecrets(ctx, providerSlug, folderName, "", itemIDs, true)
 }
 
 // exportSecrets is the shared implementation for Export and ExportInteractive.
 // When interactive=false (direnv context), authentication failures produce a
 // helpful error instead of blocking on a password prompt.
-func exportSecrets(providerSlug string, folderName string, folderID string, itemIDs []string, interactive bool) (string, error) {
+func exportSecrets(ctx context.Context, providerSlug string, folderName string, folderID string, itemIDs []string, interactive bool) (string, error) {
 	// Load user preferences to decide whether to show the export summary.
 	userCfg, _ := config.Load()
 
@@ -475,11 +483,11 @@ func exportSecrets(providerSlug string, folderName string, folderID string, item
 	var session string
 	if interactive {
 		// Interactive mode (bwenv allow): may prompt for master password.
-		session, err = p.Authenticate()
+		session, err = p.Authenticate(ctx)
 	} else {
 		// Non-interactive mode never probes, prompts, or syncs. The requested
 		// provider operation is the session validation.
-		session, err = p.AuthenticateNonInteractive()
+		session, err = p.AuthenticateNonInteractive(ctx)
 	}
 	if err != nil {
 		printExportError("Authentication failed", err)
@@ -491,7 +499,7 @@ func exportSecrets(providerSlug string, folderName string, folderID string, item
 		targetFolder = provider.Folder{ID: folderID, Name: folderName}
 	} else {
 		// Legacy projects resolve the folder by name for compatibility.
-		folders, listErr := p.ListFolders(session)
+		folders, listErr := p.ListFolders(ctx, session)
 		if listErr != nil {
 			printExportError("Could not list folders", listErr)
 			return session, fmt.Errorf("failed to list folders from %s: %w", p.Name(), listErr)
@@ -512,9 +520,9 @@ func exportSecrets(providerSlug string, folderName string, folderID string, item
 	// Fetch secrets — either all items in folder or specific items only.
 	var secrets []provider.Secret
 	if len(itemIDs) > 0 {
-		secrets, err = p.GetSecretsByItemIDs(session, targetFolder, itemIDs)
+		secrets, err = p.GetSecretsByItemIDs(ctx, session, targetFolder, itemIDs)
 	} else {
-		secrets, err = p.GetSecrets(session, targetFolder)
+		secrets, err = p.GetSecrets(ctx, session, targetFolder)
 	}
 	if err != nil {
 		printExportError("Could not fetch secrets", err)
@@ -551,8 +559,8 @@ func exportSecrets(providerSlug string, folderName string, folderID string, item
 // PreviewSecrets fetches secrets from the given provider and folder and returns
 // just the key names (not values). This is used during "bwenv init" to show
 // the user what variables will be loaded, without exposing actual secret values.
-func PreviewSecrets(p provider.Provider, session string, folder provider.Folder) ([]string, error) {
-	secrets, err := p.GetSecrets(session, folder)
+func PreviewSecrets(ctx context.Context, p provider.Provider, session string, folder provider.Folder) ([]string, error) {
+	secrets, err := p.GetSecrets(ctx, session, folder)
 	if err != nil {
 		return nil, err
 	}
@@ -567,8 +575,8 @@ func PreviewSecrets(p provider.Provider, session string, folder provider.Folder)
 // PreviewSecretsByIDs fetches secrets only from specific items and returns
 // just the key names (not values). Used when the user selected individual
 // items during "bwenv init" instead of loading the entire folder.
-func PreviewSecretsByIDs(p provider.Provider, session string, folder provider.Folder, itemIDs []string) ([]string, error) {
-	secrets, err := p.GetSecretsByItemIDs(session, folder, itemIDs)
+func PreviewSecretsByIDs(ctx context.Context, p provider.Provider, session string, folder provider.Folder, itemIDs []string) ([]string, error) {
+	secrets, err := p.GetSecretsByItemIDs(ctx, session, folder, itemIDs)
 	if err != nil {
 		return nil, err
 	}

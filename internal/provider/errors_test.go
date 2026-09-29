@@ -30,7 +30,7 @@ func TestBitwardenListFoldersTypedErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := (&Bitwarden{Runner: tc.runner}).ListFolders("session")
+			_, err := (&Bitwarden{Runner: tc.runner}).ListFolders(context.Background(), "session")
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("ListFolders() error = %v, want errors.Is %v", err, tc.want)
 			}
@@ -40,17 +40,17 @@ func TestBitwardenListFoldersTypedErrors(t *testing.T) {
 
 func TestBitwardenMissingSelectedItemIsTyped(t *testing.T) {
 	runner := outputRunner{stdout: []byte(`[{"id":"item-1","name":"A"}]`)}
-	_, err := (&Bitwarden{Runner: runner}).GetSecretsByItemIDs("s", Folder{ID: "f", Name: "F"}, []string{"missing"})
+	_, err := (&Bitwarden{Runner: runner}).GetSecretsByItemIDs(context.Background(), "s", Folder{ID: "f", Name: "F"}, []string{"missing"})
 	if !errors.Is(err, ErrItemNotFound) {
 		t.Fatalf("error = %v, want ErrItemNotFound", err)
 	}
 }
 
 func TestOnePasswordListFoldersTypedErrors(t *testing.T) {
-	if _, err := (&OnePassword{Runner: outputRunner{err: errors.New("boom")}}).ListFolders("s"); !errors.Is(err, ErrProviderUnavailable) {
+	if _, err := (&OnePassword{Runner: outputRunner{err: errors.New("boom")}}).ListFolders(context.Background(), "s"); !errors.Is(err, ErrProviderUnavailable) {
 		t.Fatalf("command failure error = %v, want ErrProviderUnavailable", err)
 	}
-	if _, err := (&OnePassword{Runner: outputRunner{stdout: []byte("not json")}}).ListFolders("s"); !errors.Is(err, ErrMalformedProviderResponse) {
+	if _, err := (&OnePassword{Runner: outputRunner{stdout: []byte("not json")}}).ListFolders(context.Background(), "s"); !errors.Is(err, ErrMalformedProviderResponse) {
 		t.Fatalf("malformed output error = %v, want ErrMalformedProviderResponse", err)
 	}
 }

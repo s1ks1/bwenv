@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 
 // RunDoctorFlow prints diagnostics suitable for sharing in an issue report.
 func RunDoctorFlow(version string) error {
+	ctx := context.Background()
 	PrintBanner(version)
 	fmt.Println()
 	printStatusSection(E("🩺", "[!]") + " Diagnostics")
@@ -54,7 +56,7 @@ func RunDoctorFlow(version string) error {
 			available := p.IsAvailable()
 			check(available, p.Name(), providerDoctorDetail(available, p.CLICommand()))
 			if available {
-				authenticated := p.IsAuthenticated()
+				authenticated := p.IsAuthenticated(ctx)
 				check(authenticated, "Provider session", statusDetail(!authenticated, "active", "run 'bwenv login' to authenticate"))
 			}
 		}

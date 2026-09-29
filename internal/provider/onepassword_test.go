@@ -292,7 +292,7 @@ func TestOnePasswordSelectedItemFailureIsReportedAsError(t *testing.T) {
 	var warnings bytes.Buffer
 	o := &OnePassword{Runner: runner, Warnings: &warnings}
 
-	secrets, err := o.GetSecretsByItemIDs("sess", Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
 	if err == nil {
 		t.Fatal("expected an error when a selected item cannot be fetched")
 	}
@@ -317,7 +317,7 @@ func TestOnePasswordSelectedItemsKeepOrderAndSkipNonSecrets(t *testing.T) {
 	var warnings bytes.Buffer
 	o := &OnePassword{Runner: runner, Warnings: &warnings}
 
-	secrets, err := o.GetSecretsByItemIDs("sess", Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestOnePasswordVaultFetchUsesSameItemPath(t *testing.T) {
 
 	// Vault listing is not stubbed, so this exercises the fetch helper's
 	// contract indirectly: no items means no secrets and no error.
-	secrets, problems := o.fetchItemsSecrets(nil, "v1")
+	secrets, problems := o.fetchItemsSecrets(context.Background(), nil, "v1")
 	if len(secrets) != 0 || len(problems) != 0 {
 		t.Fatalf("expected empty result for no items, got secrets=%v problems=%v", secrets, problems)
 	}

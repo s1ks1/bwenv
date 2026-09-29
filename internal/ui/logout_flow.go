@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ import (
 //  4. Print a summary of which providers were locked.
 //  5. Remind the user about environment variables that may still hold tokens.
 func RunLogoutFlow(version string) error {
+	ctx := context.Background()
 	PrintBanner(version)
 	fmt.Println()
 
@@ -46,7 +48,7 @@ func RunLogoutFlow(version string) error {
 	var results []lockResult
 
 	for _, p := range allProviders {
-		wasAuthenticated := p.IsAuthenticated()
+		wasAuthenticated := p.IsAuthenticated(ctx)
 
 		if !wasAuthenticated {
 			results = append(results, lockResult{
@@ -58,7 +60,7 @@ func RunLogoutFlow(version string) error {
 		}
 
 		// Attempt to lock/sign out.
-		err := p.Lock()
+		err := p.Lock(ctx)
 		results = append(results, lockResult{
 			name:    p.Name(),
 			wasAuth: true,

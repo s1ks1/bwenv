@@ -1,12 +1,13 @@
 package session
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
 
 func TestReauthenticateUnknownProvider(t *testing.T) {
-	_, err := Reauthenticate("does-not-exist")
+	_, err := Reauthenticate(context.Background(), "does-not-exist")
 	if err == nil {
 		t.Fatal("expected an error for an unknown provider")
 	}

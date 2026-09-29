@@ -49,10 +49,10 @@ func TestBitwardenSessionGoesViaEnvNotArgv(t *testing.T) {
 	runner := &recordingRunner{}
 	b := &Bitwarden{Runner: runner}
 
-	_, _ = b.ListFolders(session)
-	_, _ = b.GetSecrets(session, Folder{ID: "folder-1", Name: "Dev"})
-	_, _ = b.GetSecretsByItemIDs(session, Folder{ID: "folder-1", Name: "Dev"}, []string{"item-1"})
-	_ = b.IsAuthenticated()
+	_, _ = b.ListFolders(context.Background(), session)
+	_, _ = b.GetSecrets(context.Background(), session, Folder{ID: "folder-1", Name: "Dev"})
+	_, _ = b.GetSecretsByItemIDs(context.Background(), session, Folder{ID: "folder-1", Name: "Dev"}, []string{"item-1"})
+	_ = b.IsAuthenticated(context.Background())
 
 	if len(runner.names) == 0 {
 		t.Fatal("no bw invocations recorded")
@@ -77,7 +77,7 @@ func TestBitwardenSessionGoesViaEnvNotArgv(t *testing.T) {
 
 func TestBitwardenSyncRunsQuietly(t *testing.T) {
 	runner := &syncTestRunner{}
-	if err := (&Bitwarden{Runner: runner}).Sync(); err != nil {
+	if err := (&Bitwarden{Runner: runner}).Sync(context.Background()); err != nil {
 		t.Fatalf("Sync() returned error: %v", err)
 	}
 	if runner.name != "bw" || len(runner.args) != 1 || runner.args[0] != "sync" {
@@ -90,7 +90,7 @@ func TestBitwardenSyncRunsQuietly(t *testing.T) {
 
 func TestBitwardenSyncReturnsCommandError(t *testing.T) {
 	wantErr := errors.New("command failed")
-	err := (&Bitwarden{Runner: &syncTestRunner{err: wantErr}}).Sync()
+	err := (&Bitwarden{Runner: &syncTestRunner{err: wantErr}}).Sync(context.Background())
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Sync() error = %v, want wrapped %v", err, wantErr)
 	}

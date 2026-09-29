@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"time"
@@ -19,7 +20,7 @@ type BenchmarkReport struct {
 }
 
 // Benchmark follows the current non-interactive provider path without printing secrets.
-func Benchmark(providerSlug, folderName, folderID string, itemIDs []string) (BenchmarkReport, error) {
+func Benchmark(ctx context.Context, providerSlug, folderName, folderID string, itemIDs []string) (BenchmarkReport, error) {
 	recorder := diagnostics.NewRecorder()
 	start := time.Now()
 	p, err := provider.GetWithRunner(providerSlug, process.ExecRunner{Recorder: recorder})
@@ -31,7 +32,7 @@ func Benchmark(providerSlug, folderName, folderID string, itemIDs []string) (Ben
 	}
 
 	stop := recorder.Start("session check")
-	session, err := p.AuthenticateNonInteractive()
+	session, err := p.AuthenticateNonInteractive(ctx)
 	stop()
 	if err != nil {
 		return BenchmarkReport{}, fmt.Errorf("session unavailable; run bwenv login")
@@ -39,7 +40,7 @@ func Benchmark(providerSlug, folderName, folderID string, itemIDs []string) (Ben
 	target := provider.Folder{ID: folderID, Name: folderName}
 	if folderID == "" {
 		stop = recorder.Start("folder resolution")
-		folders, listErr := p.ListFolders(session)
+		folders, listErr := p.ListFolders(ctx, session)
 		stop()
 		if listErr != nil {
 			return BenchmarkReport{}, fmt.Errorf("folder lookup failed")
@@ -57,9 +58,9 @@ func Benchmark(providerSlug, folderName, folderID string, itemIDs []string) (Ben
 	stop = recorder.Start("secret fetch")
 	var secrets []provider.Secret
 	if len(itemIDs) > 0 {
-		secrets, err = p.GetSecretsByItemIDs(session, target, itemIDs)
+		secrets, err = p.GetSecretsByItemIDs(ctx, session, target, itemIDs)
 	} else {
-		secrets, err = p.GetSecrets(session, target)
+		secrets, err = p.GetSecrets(ctx, session, target)
 	}
 	stop()
 	if err != nil {

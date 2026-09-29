@@ -3,6 +3,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/s1ks1/bwenv/v3/internal/provider"
@@ -13,7 +14,7 @@ import (
 // exporting secrets (e.g. "bwenv allow" in TTY mode).
 //
 // It returns ("", nil) for providers that do not use session tokens (1Password).
-func Reauthenticate(providerSlug string) (string, error) {
+func Reauthenticate(ctx context.Context, providerSlug string) (string, error) {
 	p, err := provider.Get(providerSlug)
 	if err != nil {
 		return "", fmt.Errorf("provider %q not found: %w", providerSlug, err)
@@ -23,7 +24,7 @@ func Reauthenticate(providerSlug string) (string, error) {
 		return "", fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
 	}
 
-	session, err := p.Authenticate()
+	session, err := p.Authenticate(ctx)
 	if err != nil {
 		return "", fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
 	}

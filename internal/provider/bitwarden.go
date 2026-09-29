@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/s1ks1/bwenv/v3/internal/process"
 )
@@ -25,12 +24,12 @@ func (b *Bitwarden) withRunner(runner process.Runner) Provider {
 	return &Bitwarden{Runner: runner}
 }
 
-func (b *Bitwarden) run(args []string, streams process.IO) (process.Result, error) {
+func (b *Bitwarden) run(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
 	runner := b.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := withDefaultTimeout(ctx, defaultTimeout)
 	defer cancel()
 	result, err := runner.Run(ctx, "bw", args, streams)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -39,20 +38,20 @@ func (b *Bitwarden) run(args []string, streams process.IO) (process.Result, erro
 	return result, err
 }
 
-func (b *Bitwarden) runInteractive(args []string, streams process.IO) (process.Result, error) {
+func (b *Bitwarden) runInteractive(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
 	runner := b.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	return runner.Run(context.Background(), "bw", args, streams)
+	return runner.Run(ctx, "bw", args, streams)
 }
 
 // runWithSession runs bw with the session provided to the child via the
 // BW_SESSION environment variable. The session goes via env, never argv —
 // argv is visible in ps to all local users.
-func (b *Bitwarden) runWithSession(session string, args []string, streams process.IO) (process.Result, error) {
+func (b *Bitwarden) runWithSession(ctx context.Context, session string, args []string, streams process.IO) (process.Result, error) {
 	streams.Env = append(os.Environ(), "BW_SESSION="+session)
-	return b.run(args, streams)
+	return b.run(ctx, args, streams)
 }
 
 // bwUnexpected is the generic, leak-free user-facing error for cases that
@@ -86,14 +85,14 @@ func (b *Bitwarden) IsAvailable() bool {
 
 // IsAuthenticated checks if there is a valid BW_SESSION environment variable
 // and if the session can actually reach the vault.
-func (b *Bitwarden) IsAuthenticated() bool {
+func (b *Bitwarden) IsAuthenticated(ctx context.Context) bool {
 	session := os.Getenv("BW_SESSION")
 	if session == "" {
 		return false
 	}
 	// Try listing folders to verify the session is still valid.
 	// Capture both stdout and stderr so we can detect error responses.
-	result, err := b.runWithSession(session, []string{"list", "folders"}, process.IO{})
+	result, err := b.runWithSession(ctx, session, []string{"list", "folders"}, process.IO{})
 	if err != nil {
 		return false
 	}
@@ -105,21 +104,21 @@ func (b *Bitwarden) IsAuthenticated() bool {
 // Authenticate unlocks the Bitwarden vault and returns a session token.
 // If BW_SESSION is already set and valid, it reuses it without prompting.
 // Otherwise, it syncs the vault and prompts the user for their master password.
-func (b *Bitwarden) Authenticate() (string, error) {
+func (b *Bitwarden) Authenticate(ctx context.Context) (string, error) {
 	// Check if there's already a valid session in the environment.
 	if session := os.Getenv("BW_SESSION"); session != "" {
-		if b.IsAuthenticated() {
+		if b.IsAuthenticated(ctx) {
 			return session, nil
 		}
 		// Session expired — fall through to unlock.
 	}
 
 	// Sync the vault first (best-effort, don't fail if offline).
-	_, _ = b.runInteractive([]string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	_, _ = b.runInteractive(ctx, []string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 
 	// Unlock the vault interactively. The "bw unlock --raw" command
 	// prompts for the master password and outputs just the session token.
-	result, err := b.runInteractive([]string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
+	result, err := b.runInteractive(ctx, []string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
 	if err != nil {
 		return "", fmt.Errorf("%w: failed to unlock Bitwarden vault: %w", ErrNotAuthenticated, err)
 	}
@@ -135,7 +134,7 @@ func (b *Bitwarden) Authenticate() (string, error) {
 // AuthenticateNonInteractive returns the session already supplied by the
 // shell. The provider operation validates it, so this method must not invoke
 // another CLI command.
-func (b *Bitwarden) AuthenticateNonInteractive() (string, error) {
+func (b *Bitwarden) AuthenticateNonInteractive(context.Context) (string, error) {
 	if session := os.Getenv("BW_SESSION"); session != "" {
 		return session, nil
 	}
@@ -143,12 +142,12 @@ func (b *Bitwarden) AuthenticateNonInteractive() (string, error) {
 }
 
 // Sync updates the local Bitwarden vault without exposing CLI output.
-func (b *Bitwarden) Sync() error {
+func (b *Bitwarden) Sync(ctx context.Context) error {
 	runner := b.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := withDefaultTimeout(ctx, defaultSyncTimeout)
 	defer cancel()
 	_, err := runner.Run(ctx, "bw", []string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
@@ -166,8 +165,8 @@ type bwFolder struct {
 // ListFolders returns all folders in the Bitwarden vault.
 // Sync is NOT called here — it's done once in Authenticate() to avoid
 // redundant network calls.
-func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
-	result, err := b.runWithSession(session, []string{"list", "folders"}, process.IO{})
+func (b *Bitwarden) ListFolders(ctx context.Context, session string) ([]Folder, error) {
+	result, err := b.runWithSession(ctx, session, []string{"list", "folders"}, process.IO{})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s while listing folders: %w", ErrProviderUnavailable, bwUnexpected, err)
 	}
@@ -224,8 +223,8 @@ type bwField struct {
 // GetSecrets retrieves all custom fields from items in the given folder
 // and returns them as key-value Secret pairs. Each field becomes one
 // environment variable — the field name is the key, the field value is the value.
-func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) {
-	items, err := b.listItems(session, folder.ID)
+func (b *Bitwarden) GetSecrets(ctx context.Context, session string, folder Folder) ([]Secret, error) {
+	items, err := b.listItems(ctx, session, folder.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +247,8 @@ func (b *Bitwarden) GetSecrets(session string, folder Folder) ([]Secret, error) 
 
 // ListItems returns all items in the given folder. Each item is a
 // single vault entry that may contain multiple custom fields.
-func (b *Bitwarden) ListItems(session string, folder Folder) ([]SecretItem, error) {
-	items, err := b.listItems(session, folder.ID)
+func (b *Bitwarden) ListItems(ctx context.Context, session string, folder Folder) ([]SecretItem, error) {
+	items, err := b.listItems(ctx, session, folder.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -266,8 +265,8 @@ func (b *Bitwarden) ListItems(session string, folder Folder) ([]SecretItem, erro
 }
 
 // GetSecretsByItemIDs retrieves custom fields only from the specified items.
-func (b *Bitwarden) GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error) {
-	items, err := b.listItems(session, folder.ID)
+func (b *Bitwarden) GetSecretsByItemIDs(ctx context.Context, session string, folder Folder, itemIDs []string) ([]Secret, error) {
+	items, err := b.listItems(ctx, session, folder.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -296,8 +295,8 @@ func (b *Bitwarden) GetSecretsByItemIDs(session string, folder Folder, itemIDs [
 
 // listItems is the shared implementation that parses the raw bwItem list
 // from "bw list items". Used by both GetSecrets and ListItems.
-func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error) {
-	result, err := b.runWithSession(session, []string{"list", "items", "--folderid", folderID}, process.IO{})
+func (b *Bitwarden) listItems(ctx context.Context, session string, folderID string) ([]bwItem, error) {
+	result, err := b.runWithSession(ctx, session, []string{"list", "items", "--folderid", folderID}, process.IO{})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", ErrProviderUnavailable, bwUnexpected, folderID, err)
 	}
@@ -324,8 +323,8 @@ func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error)
 
 // Lock locks the Bitwarden vault, invalidating the current session.
 // This is used by the "bwenv logout" command.
-func (b *Bitwarden) Lock() error {
-	_, err := b.run([]string{"lock"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+func (b *Bitwarden) Lock(ctx context.Context) error {
+	_, err := b.run(ctx, []string{"lock"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		return fmt.Errorf("failed to lock Bitwarden vault: %w", err)
 	}

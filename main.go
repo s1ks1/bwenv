@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -173,7 +174,7 @@ func runBenchmark(args []string) {
 		fmt.Fprintln(os.Stderr, "benchmark: both --provider and --folder are required")
 		os.Exit(1)
 	}
-	report, err := benchmark.Benchmark(providerSlug, folder, folderID, itemIDs)
+	report, err := benchmark.Benchmark(context.Background(), providerSlug, folder, folderID, itemIDs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
 		os.Exit(1)
@@ -251,7 +252,7 @@ func runExport(args []string) {
 		os.Exit(1)
 	}
 
-	if err := export.ExportWithFolderID(provider, folder, folderID, itemIDs); err != nil {
+	if err := export.ExportWithFolderID(context.Background(), provider, folder, folderID, itemIDs); err != nil {
 		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
 		os.Exit(1)
 	}
@@ -289,7 +290,7 @@ func runAllow() {
 		// from .envrc and "bwenv export" fails with "session expired".
 		prov, folder, _, _ := direnv.ParseConfig()
 		if prov != "" && folder != "" {
-			session, err := session.Reauthenticate(prov)
+			session, err := session.Reauthenticate(context.Background(), prov)
 			if err != nil {
 				// Non-fatal — if re-auth fails (e.g. 1Password, no session needed),
 				// we still approve .envrc and let direnv handle it.

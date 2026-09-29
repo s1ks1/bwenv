@@ -11,6 +11,7 @@ package export
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -235,10 +236,10 @@ func TestFastExportOutputIsEvalSafe(t *testing.T) {
 
 	stabilityChdir(t, t.TempDir())
 	stdout, stderr, err := stabilityCaptureOutput(t, func() error {
-		return ExportWithFolderID("mock", "Folder", "folder-id", nil)
+		return ExportWithFolderID(context.Background(), "mock", "Folder", "folder-id", nil)
 	})
 	if err != nil {
-		t.Fatalf("ExportWithFolderID() returned error: %v (stderr: %s)", err, stderr)
+		t.Fatalf("ExportWithFolderID(context.Background(), ) returned error: %v (stderr: %s)", err, stderr)
 	}
 
 	// Build a script that evals the generated export lines and prints each
@@ -305,10 +306,10 @@ func TestFastExportDuplicateKeysLastWins(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
 
 			stdout, stderr, err := stabilityCaptureOutput(t, func() error {
-				return ExportWithFolderID("mock", "Folder", "folder-id", nil)
+				return ExportWithFolderID(context.Background(), "mock", "Folder", "folder-id", nil)
 			})
 			if err != nil {
-				t.Fatalf("ExportWithFolderID() returned error: %v (stderr: %s)", err, stderr)
+				t.Fatalf("ExportWithFolderID(context.Background(), ) returned error: %v (stderr: %s)", err, stderr)
 			}
 
 			key := shell.SanitizeKey(tc.secrets[0].Key)
@@ -422,7 +423,7 @@ func TestFastExportSessionFailureIsGraceful(t *testing.T) {
 		stabilityChdir(t, t.TempDir())
 
 		_, _, err := stabilityCaptureOutput(t, func() error {
-			return ExportWithFolderID("bitwarden", "Folder", "folder-id", nil)
+			return ExportWithFolderID(context.Background(), "bitwarden", "Folder", "folder-id", nil)
 		})
 		if err == nil {
 			t.Fatal("expected graceful error when BW_SESSION is empty/expired")
@@ -443,7 +444,7 @@ func TestFastExportSessionFailureIsGraceful(t *testing.T) {
 		stabilityChdir(t, t.TempDir())
 
 		_, stderr, err := stabilityCaptureOutput(t, func() error {
-			return ExportWithFolderID("bitwarden", "Folder", "folder-id", nil)
+			return ExportWithFolderID(context.Background(), "bitwarden", "Folder", "folder-id", nil)
 		})
 		if err == nil {
 			t.Fatal("expected error when the session is rejected by the provider CLI")

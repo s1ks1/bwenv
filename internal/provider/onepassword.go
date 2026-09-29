@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/s1ks1/bwenv/v3/internal/process"
 )
@@ -47,12 +46,12 @@ func (o *OnePassword) reportProblems(problems []string) {
 	}
 }
 
-func (o *OnePassword) run(args []string, streams process.IO) (process.Result, error) {
+func (o *OnePassword) run(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
 	runner := o.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := withDefaultTimeout(ctx, defaultTimeout)
 	defer cancel()
 	result, err := runner.Run(ctx, "op", args, streams)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -61,12 +60,12 @@ func (o *OnePassword) run(args []string, streams process.IO) (process.Result, er
 	return result, err
 }
 
-func (o *OnePassword) runInteractive(args []string, streams process.IO) (process.Result, error) {
+func (o *OnePassword) runInteractive(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
 	runner := o.Runner
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	return runner.Run(context.Background(), "op", args, streams)
+	return runner.Run(ctx, "op", args, streams)
 }
 
 // init registers the 1Password provider in the global registry on startup.
@@ -97,8 +96,8 @@ func (o *OnePassword) IsAvailable() bool {
 // IsAuthenticated checks if the user has an active 1Password CLI session.
 // The "op" CLI v2+ uses system authentication (biometrics, etc.) so we
 // test by running a simple command and seeing if it succeeds.
-func (o *OnePassword) IsAuthenticated() bool {
-	result, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{})
+func (o *OnePassword) IsAuthenticated(ctx context.Context) bool {
+	result, err := o.run(ctx, []string{"vault", "list", "--format=json"}, process.IO{})
 	if err != nil {
 		return false
 	}
@@ -110,16 +109,16 @@ func (o *OnePassword) IsAuthenticated() bool {
 // service accounts, the OP_SESSION_* or OP_SERVICE_ACCOUNT_TOKEN env
 // vars may already be set. Returns an empty session string since op v2
 // manages sessions internally.
-func (o *OnePassword) Authenticate() (string, error) {
+func (o *OnePassword) Authenticate(ctx context.Context) (string, error) {
 	// Check if already authenticated (op v2 uses system auth).
-	if o.IsAuthenticated() {
+	if o.IsAuthenticated(ctx) {
 		return "", nil
 	}
 
 	// Check for service account token (headless / CI environments).
 	if token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN"); token != "" {
 		// Verify the token works.
-		if _, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{}); err == nil {
+		if _, err := o.run(ctx, []string{"vault", "list", "--format=json"}, process.IO{}); err == nil {
 			return "", nil
 		}
 		return "", fmt.Errorf("%w: OP_SERVICE_ACCOUNT_TOKEN is set but invalid", ErrNotAuthenticated)
@@ -127,7 +126,7 @@ func (o *OnePassword) Authenticate() (string, error) {
 
 	// Attempt interactive sign-in. The op CLI v2 will open a system
 	// authentication prompt (Touch ID, password dialog, etc.).
-	_, err := o.runInteractive([]string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
+	_, err := o.runInteractive(ctx, []string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
 	if err != nil {
 		return "", fmt.Errorf("%w: failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", ErrNotAuthenticated, err)
 	}
@@ -136,7 +135,7 @@ func (o *OnePassword) Authenticate() (string, error) {
 }
 
 // AuthenticateNonInteractive leaves validation to the requested op command.
-func (o *OnePassword) AuthenticateNonInteractive() (string, error) {
+func (o *OnePassword) AuthenticateNonInteractive(context.Context) (string, error) {
 	return "", nil
 }
 
@@ -153,8 +152,8 @@ func (v opVault) ToFolder() Folder {
 // ListFolders returns all vaults in the 1Password account.
 // In 1Password, "vaults" are the equivalent of Bitwarden's "folders".
 // The session parameter is unused for op v2 (auth is managed internally).
-func (o *OnePassword) ListFolders(session string) ([]Folder, error) {
-	result, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{})
+func (o *OnePassword) ListFolders(ctx context.Context, session string) ([]Folder, error) {
+	result, err := o.run(ctx, []string{"vault", "list", "--format=json"}, process.IO{})
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to list 1Password vaults: %w", ErrProviderUnavailable, err)
 	}
@@ -202,8 +201,8 @@ type opItemField struct {
 //
 // Items are fetched concurrently (up to 5 at a time) to minimize latency
 // for vaults with many items.
-func (o *OnePassword) GetSecrets(session string, folder Folder) ([]Secret, error) {
-	items, err := o.listItemsInVault(folder.ID)
+func (o *OnePassword) GetSecrets(ctx context.Context, session string, folder Folder) ([]Secret, error) {
+	items, err := o.listItemsInVault(ctx, folder.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,14 +211,14 @@ func (o *OnePassword) GetSecrets(session string, folder Folder) ([]Secret, error
 	for _, item := range items {
 		itemIDs = append(itemIDs, item.ID)
 	}
-	secrets, problems := o.fetchItemsSecrets(itemIDs, folder.ID)
+	secrets, problems := o.fetchItemsSecrets(ctx, itemIDs, folder.ID)
 	o.reportProblems(problems)
 	return secrets, nil
 }
 
 // ListItems returns all items in the given vault.
-func (o *OnePassword) ListItems(session string, folder Folder) ([]SecretItem, error) {
-	items, err := o.listItemsInVault(folder.ID)
+func (o *OnePassword) ListItems(ctx context.Context, session string, folder Folder) ([]SecretItem, error) {
+	items, err := o.listItemsInVault(ctx, folder.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -239,8 +238,8 @@ func (o *OnePassword) ListItems(session string, folder Folder) ([]SecretItem, er
 // Item IDs are globally unique in 1Password, so no vault specification is
 // needed. Unlike the best-effort folder fetch, a selected item that cannot be
 // read is reported as an error so the caller never silently loads fewer secrets.
-func (o *OnePassword) GetSecretsByItemIDs(session string, folder Folder, itemIDs []string) ([]Secret, error) {
-	secrets, problems := o.fetchItemsSecrets(itemIDs, "")
+func (o *OnePassword) GetSecretsByItemIDs(ctx context.Context, session string, folder Folder, itemIDs []string) ([]Secret, error) {
+	secrets, problems := o.fetchItemsSecrets(ctx, itemIDs, "")
 	o.reportProblems(problems)
 	if len(problems) > 0 {
 		return secrets, fmt.Errorf("%d of %d selected item(s) could not be fetched", len(problems), len(itemIDs))
@@ -249,8 +248,8 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, folder Folder, itemIDs
 }
 
 // listItemsInVault runs "op item list --vault" and returns the parsed items.
-func (o *OnePassword) listItemsInVault(vaultID string) ([]opItem, error) {
-	result, err := o.run([]string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
+func (o *OnePassword) listItemsInVault(ctx context.Context, vaultID string) ([]opItem, error) {
+	result, err := o.run(ctx, []string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to list items in vault %q: %w", ErrProviderUnavailable, vaultID, err)
 	}
@@ -267,7 +266,7 @@ func (o *OnePassword) listItemsInVault(vaultID string) ([]opItem, error) {
 // and returns their secrets in the order of itemIDs, plus one message per item
 // that could not be read. It is the single item-fetch path shared by the folder
 // and selected-item operations. An empty vaultID omits the --vault flag.
-func (o *OnePassword) fetchItemsSecrets(itemIDs []string, vaultID string) ([]Secret, []string) {
+func (o *OnePassword) fetchItemsSecrets(ctx context.Context, itemIDs []string, vaultID string) ([]Secret, []string) {
 	const maxConcurrency = 5
 
 	sem := make(chan struct{}, maxConcurrency)
@@ -288,7 +287,7 @@ func (o *OnePassword) fetchItemsSecrets(itemIDs []string, vaultID string) ([]Sec
 			}
 			args = append(args, "--format=json")
 
-			result, err := o.run(args, process.IO{})
+			result, err := o.run(ctx, args, process.IO{})
 			if err != nil {
 				problems[idx] = fmt.Sprintf("could not fetch item %q: %v", itemID, err)
 				return
@@ -341,13 +340,13 @@ func fieldsToSecrets(fields []opItemField) []Secret {
 // Lock signs out of the 1Password CLI session.
 // For op CLI v2+, this runs "op signout" to terminate the current session.
 // Returns nil if the sign-out succeeds or if there is no active session.
-func (o *OnePassword) Lock() error {
+func (o *OnePassword) Lock(ctx context.Context) error {
 	// If not authenticated, there's nothing to sign out of.
-	if !o.IsAuthenticated() {
+	if !o.IsAuthenticated(ctx) {
 		return nil
 	}
 
-	_, err := o.run([]string{"signout"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	_, err := o.run(ctx, []string{"signout"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		return fmt.Errorf("failed to sign out of 1Password: %w", err)
 	}
