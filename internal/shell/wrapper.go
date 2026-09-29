@@ -8,15 +8,22 @@ import (
 )
 
 // wrapperMarker is the unique string used to detect if the bwenv shell wrapper
-// function is already installed.
-const wrapperMarker = "# bwenv shell integration"
+// function is already installed. It must stay disjoint from the activation
+// shell hook marker ("# bwenv shell integration (experimental)") so the two
+// installations cannot false-positive on each other (PER-42).
+const wrapperMarker = "# bwenv shell wrapper"
+
+// legacyWrapperMarker identifies wrapper installs from before the marker was
+// renamed. The full comment line is used so it cannot match the hook marker,
+// which shares the "# bwenv shell integration" prefix.
+const legacyWrapperMarker = "# bwenv shell integration — enables"
 
 // wrapperBashZsh is the shell function for bash/zsh that wraps bwenv commands.
 // Commands that produce shell code (export/unset) are eval'd transparently, so
 // "bwenv allow" / "bwenv disallow" / "bwenv remove" / "bwenv login" can modify
 // the current shell's environment directly.
 const wrapperBashZsh = `
-# bwenv shell integration — enables seamless secret management
+# bwenv shell wrapper — enables seamless secret management
 # Commands like allow/disallow/remove/login modify your shell environment directly.
 bwenv() {
   case "${1:-}" in
@@ -36,7 +43,7 @@ bwenv() {
 
 // wrapperFish is the shell function for fish shell.
 const wrapperFish = `
-# bwenv shell integration — enables seamless secret management
+# bwenv shell wrapper — enables seamless secret management
 function bwenv
   switch $argv[1]
     case allow disallow deny remove clean export load login auth activate deactivate
@@ -73,7 +80,8 @@ func InstallWrapper() (modified bool, filePath string, err error) {
 		return false, displayPath, fmt.Errorf("could not read %s: %w", displayPath, err)
 	}
 
-	if strings.Contains(string(content), wrapperMarker) {
+	if strings.Contains(string(content), wrapperMarker) ||
+		strings.Contains(string(content), legacyWrapperMarker) {
 		return false, displayPath, nil
 	}
 
