@@ -428,7 +428,7 @@ func TestFastExportSessionFailureIsGraceful(t *testing.T) {
 			t.Fatal("expected graceful error when BW_SESSION is empty/expired")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "session expired or not active") {
+		if !strings.Contains(msg, "session expired") {
 			t.Errorf("error should explain the session state, got: %v", err)
 		}
 		if !strings.Contains(msg, "bwenv login") {

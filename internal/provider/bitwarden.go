@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,7 +32,11 @@ func (b *Bitwarden) run(args []string, streams process.IO) (process.Result, erro
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return runner.Run(ctx, "bw", args, streams)
+	result, err := runner.Run(ctx, "bw", args, streams)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("%w: bw command exceeded its timeout", ErrProviderTimeout)
+	}
+	return result, err
 }
 
 func (b *Bitwarden) runInteractive(args []string, streams process.IO) (process.Result, error) {
@@ -116,12 +121,12 @@ func (b *Bitwarden) Authenticate() (string, error) {
 	// prompts for the master password and outputs just the session token.
 	result, err := b.runInteractive([]string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
 	if err != nil {
-		return "", fmt.Errorf("failed to unlock Bitwarden vault: %w", err)
+		return "", fmt.Errorf("%w: failed to unlock Bitwarden vault: %w", ErrNotAuthenticated, err)
 	}
 
 	session := strings.TrimSpace(string(result.Stdout))
 	if session == "" {
-		return "", fmt.Errorf("received empty session token from 'bw unlock'")
+		return "", fmt.Errorf("%w: empty session token from 'bw unlock'", ErrNotAuthenticated)
 	}
 
 	return session, nil
@@ -134,7 +139,7 @@ func (b *Bitwarden) AuthenticateNonInteractive() (string, error) {
 	if session := os.Getenv("BW_SESSION"); session != "" {
 		return session, nil
 	}
-	return "", fmt.Errorf("session expired or not active — run 'bwenv login' to re-authenticate")
+	return "", fmt.Errorf("%w: run 'bwenv login' to re-authenticate", ErrSessionExpired)
 }
 
 // Sync updates the local Bitwarden vault without exposing CLI output.
@@ -164,7 +169,7 @@ type bwFolder struct {
 func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 	result, err := b.runWithSession(session, []string{"list", "folders"}, process.IO{})
 	if err != nil {
-		return nil, fmt.Errorf("%s while listing folders: %w", bwUnexpected, err)
+		return nil, fmt.Errorf("%w: %s while listing folders: %w", ErrProviderUnavailable, bwUnexpected, err)
 	}
 
 	out := bytes.TrimSpace(result.Stdout)
@@ -174,21 +179,20 @@ func (b *Bitwarden) ListFolders(session string) ([]Folder, error) {
 	// produces no JSON output (or outputs an error message to stdout).
 	if len(out) == 0 {
 		return nil, fmt.Errorf(
-			"Bitwarden CLI returned empty output when listing folders.\n" +
-				"    This usually means your session has expired.\n" +
-				"    Run 'bwenv login' to re-authenticate")
+			"%w: Bitwarden CLI returned empty output when listing folders; run 'bwenv login'",
+			ErrSessionExpired)
 	}
 
 	// Verify the output looks like a JSON array before parsing.
 	// The bw CLI can sometimes return an error message as plain text
 	// (e.g. "Your vault is locked.") instead of JSON.
 	if out[0] != '[' {
-		return nil, fmt.Errorf("%s while listing folders", bwUnexpected)
+		return nil, fmt.Errorf("%w: %s while listing folders", ErrMalformedProviderResponse, bwUnexpected)
 	}
 
 	var raw []bwFolder
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("%s while listing folders: %w", bwUnexpected, err)
+		return nil, fmt.Errorf("%w: %s while listing folders: %w", ErrMalformedProviderResponse, bwUnexpected, err)
 	}
 
 	folders := make([]Folder, 0, len(raw))
@@ -277,7 +281,7 @@ func (b *Bitwarden) GetSecretsByItemIDs(session string, folder Folder, itemIDs [
 	for _, id := range itemIDs {
 		item, ok := byID[id]
 		if !ok {
-			return nil, fmt.Errorf("item %q not found in folder %q", id, folder.Name)
+			return nil, fmt.Errorf("%w: item %q in folder %q", ErrItemNotFound, id, folder.Name)
 		}
 		for _, field := range item.Fields {
 			if field.Name == "" {
@@ -295,25 +299,24 @@ func (b *Bitwarden) GetSecretsByItemIDs(session string, folder Folder, itemIDs [
 func (b *Bitwarden) listItems(session string, folderID string) ([]bwItem, error) {
 	result, err := b.runWithSession(session, []string{"list", "items", "--folderid", folderID}, process.IO{})
 	if err != nil {
-		return nil, fmt.Errorf("%s while listing items in folder %q: %w", bwUnexpected, folderID, err)
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", ErrProviderUnavailable, bwUnexpected, folderID, err)
 	}
 
 	out := bytes.TrimSpace(result.Stdout)
 
 	if len(out) == 0 {
 		return nil, fmt.Errorf(
-			"Bitwarden CLI returned empty output for folder %q.\n"+
-				"    Your session may have expired. Run 'bwenv login' to re-authenticate",
-			folderID)
+			"%w: Bitwarden CLI returned empty output for folder %q; run 'bwenv login'",
+			ErrSessionExpired, folderID)
 	}
 
 	if out[0] != '[' {
-		return nil, fmt.Errorf("%s while listing items in folder %q", bwUnexpected, folderID)
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q", ErrMalformedProviderResponse, bwUnexpected, folderID)
 	}
 
 	var items []bwItem
 	if err := json.Unmarshal(out, &items); err != nil {
-		return nil, fmt.Errorf("%s while listing items in folder %q: %w", bwUnexpected, folderID, err)
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", ErrMalformedProviderResponse, bwUnexpected, folderID, err)
 	}
 
 	return items, nil

@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,7 +54,11 @@ func (o *OnePassword) run(args []string, streams process.IO) (process.Result, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return runner.Run(ctx, "op", args, streams)
+	result, err := runner.Run(ctx, "op", args, streams)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("%w: op command exceeded its timeout", ErrProviderTimeout)
+	}
+	return result, err
 }
 
 func (o *OnePassword) runInteractive(args []string, streams process.IO) (process.Result, error) {
@@ -117,14 +122,14 @@ func (o *OnePassword) Authenticate() (string, error) {
 		if _, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{}); err == nil {
 			return "", nil
 		}
-		return "", fmt.Errorf("OP_SERVICE_ACCOUNT_TOKEN is set but invalid")
+		return "", fmt.Errorf("%w: OP_SERVICE_ACCOUNT_TOKEN is set but invalid", ErrNotAuthenticated)
 	}
 
 	// Attempt interactive sign-in. The op CLI v2 will open a system
 	// authentication prompt (Touch ID, password dialog, etc.).
 	_, err := o.runInteractive([]string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
 	if err != nil {
-		return "", fmt.Errorf("failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", err)
+		return "", fmt.Errorf("%w: failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", ErrNotAuthenticated, err)
 	}
 
 	return "", nil
@@ -151,12 +156,12 @@ func (v opVault) ToFolder() Folder {
 func (o *OnePassword) ListFolders(session string) ([]Folder, error) {
 	result, err := o.run([]string{"vault", "list", "--format=json"}, process.IO{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list 1Password vaults: %w", err)
+		return nil, fmt.Errorf("%w: failed to list 1Password vaults: %w", ErrProviderUnavailable, err)
 	}
 
 	var vaults []opVault
 	if err := json.Unmarshal(result.Stdout, &vaults); err != nil {
-		return nil, fmt.Errorf("failed to parse vault list: %w", err)
+		return nil, fmt.Errorf("%w: failed to parse vault list: %w", ErrMalformedProviderResponse, err)
 	}
 
 	folders := make([]Folder, 0, len(vaults))
@@ -247,12 +252,12 @@ func (o *OnePassword) GetSecretsByItemIDs(session string, folder Folder, itemIDs
 func (o *OnePassword) listItemsInVault(vaultID string) ([]opItem, error) {
 	result, err := o.run([]string{"item", "list", "--vault", vaultID, "--format=json"}, process.IO{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list items in vault %q: %w", vaultID, err)
+		return nil, fmt.Errorf("%w: failed to list items in vault %q: %w", ErrProviderUnavailable, vaultID, err)
 	}
 
 	var items []opItem
 	if err := json.Unmarshal(result.Stdout, &items); err != nil {
-		return nil, fmt.Errorf("failed to parse item list: %w", err)
+		return nil, fmt.Errorf("%w: failed to parse item list: %w", ErrMalformedProviderResponse, err)
 	}
 
 	return items, nil
