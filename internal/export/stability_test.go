@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
@@ -348,14 +349,14 @@ func TestFastExportCanonicalFolderRoundTrip(t *testing.T) {
 	for i, name := range names {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
-			if err := direnv.Generate(direnv.Config{
+			if err := direnv.Install(activation.Config{
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				FolderID:     "folder-id-123",
 				Session:      "tok",
 				Version:      testVersion,
 			}); err != nil {
-				t.Fatalf("direnv.Generate() with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.Install() with folder %q returned error: %v", name, err)
 			}
 
 			_, folder, folderID, _, err := direnv.ParseConfigWithFolderID()
@@ -393,12 +394,12 @@ func TestFastExportLegacyFolderRoundTrip(t *testing.T) {
 	for i, name := range names {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
-			if err := direnv.Generate(direnv.Config{
+			if err := direnv.Install(activation.Config{
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				Version:      testVersion,
 			}); err != nil {
-				t.Fatalf("direnv.Generate() legacy with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.Install() legacy with folder %q returned error: %v", name, err)
 			}
 
 			_, folder, _, err := direnv.ParseConfig()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
@@ -23,7 +24,7 @@ func TestGenerateWithoutItems(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := direnv.Generate(direnv.Config{
+	err := direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test Folder",
 		FolderID:     "folder-id-123",
@@ -31,7 +32,7 @@ func TestGenerateWithoutItems(t *testing.T) {
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("direnv.Generate() returned error: %v", err)
+		t.Fatalf("direnv.Install() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -82,7 +83,7 @@ func TestGenerateWithItems(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := direnv.Generate(direnv.Config{
+	err := direnv.Install(activation.Config{
 		ProviderSlug: "1password",
 		FolderName:   "Dev",
 		FolderID:     "vault-id",
@@ -91,7 +92,7 @@ func TestGenerateWithItems(t *testing.T) {
 		ItemNames:    []string{"API Keys", "Database"},
 	})
 	if err != nil {
-		t.Fatalf("direnv.Generate() returned error: %v", err)
+		t.Fatalf("direnv.Install() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -123,14 +124,14 @@ func TestGenerateWithoutSession(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := direnv.Generate(direnv.Config{
+	err := direnv.Install(activation.Config{
 		ProviderSlug: "1password",
 		FolderName:   "Production",
 		FolderID:     "vault-id",
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("direnv.Generate() returned error: %v", err)
+		t.Fatalf("direnv.Install() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -152,13 +153,13 @@ func TestGenerateWithoutFolderIDKeepsLegacyExport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := direnv.Generate(direnv.Config{
+	if err := direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Legacy",
 		Session:      "session-token",
 		Version:      testVersion,
 	}); err != nil {
-		t.Fatalf("direnv.Generate() returned error: %v", err)
+		t.Fatalf("direnv.Install() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -188,14 +189,14 @@ func TestGenerateFilePermissions(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := direnv.Generate(direnv.Config{
+	err := direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("direnv.Generate() returned error: %v", err)
+		t.Fatalf("direnv.Install() returned error: %v", err)
 	}
 
 	info, err := os.Stat(".envrc")
@@ -221,7 +222,7 @@ func TestParseEnvrcConfig(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := direnv.Generate(direnv.Config{
+	err := direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "My Secrets",
 		FolderID:     "folder-id",
@@ -231,7 +232,7 @@ func TestParseEnvrcConfig(t *testing.T) {
 		ItemNames:    []string{"Item A", "Item B"},
 	})
 	if err != nil {
-		t.Fatalf("direnv.Generate() failed: %v", err)
+		t.Fatalf("direnv.Install() failed: %v", err)
 	}
 
 	provider, folder, folderID, itemIDs, err := direnv.ParseConfigWithFolderID()
@@ -288,7 +289,7 @@ func TestParseEnvrcConfigWithoutItems(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := direnv.Generate(direnv.Config{
+	err := direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
@@ -296,7 +297,7 @@ func TestParseEnvrcConfigWithoutItems(t *testing.T) {
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("direnv.Generate() failed: %v", err)
+		t.Fatalf("direnv.Install() failed: %v", err)
 	}
 
 	_, _, itemIDs, err := direnv.ParseConfig()
@@ -485,7 +486,7 @@ func TestUpdateSession(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	direnv.Generate(direnv.Config{
+	direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
@@ -514,7 +515,7 @@ func TestUpdateSessionEmptyDoesNothing(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	direnv.Generate(direnv.Config{
+	direnv.Install(activation.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",

@@ -20,6 +20,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/config"
 	"github.com/s1ks1/bwenv/v3/internal/export"
@@ -230,7 +231,12 @@ func RunInitFlow(version string) error {
 		PrintWarning("Existing .envrc will be overwritten")
 	}
 
-	err = direnv.Generate(direnv.Config{
+	activator, err := activation.Get("direnv")
+	if err != nil {
+		return fmt.Errorf("activation backend unavailable: %w", err)
+	}
+
+	err = activator.Install(activation.Config{
 		ProviderSlug: chosenProvider.Slug(),
 		FolderName:   chosenFolder.Name,
 		FolderID:     chosenFolder.ID,
@@ -245,12 +251,10 @@ func RunInitFlow(version string) error {
 
 	PrintSuccess(".envrc created")
 
-	// -- Step 8: Allow direnv so secrets load automatically --
-	// Now that DIRENV_LOG_FORMAT="" is set globally (step 9 below) or was
-	// already set from a previous init, we can safely allow the .envrc.
-	// When the user's prompt returns, direnv's hook will silently load it.
-	if err := direnv.Allow(); err != nil {
-		// Non-fatal — direnv might not be installed.
+	// -- Step 8: Approve the activation artifact so secrets load automatically --
+	// When the user's prompt returns, the backend hook will load it silently.
+	if err := activator.Approve(); err != nil {
+		// Non-fatal — the backend tooling might not be installed.
 		_ = err
 	}
 

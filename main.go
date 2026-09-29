@@ -4,12 +4,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
 	"github.com/s1ks1/bwenv/v3/internal/export"
@@ -109,8 +111,12 @@ func main() {
 		runLogin()
 
 	case "refresh":
-		// Sync provider data where supported and trigger a direnv reload.
+		// Sync provider data where supported and trigger an activation reload.
 		runRefresh()
+
+	case "activate":
+		// Make the project's activation artifact ready in the current directory.
+		runActivate()
 
 	case "logout", "lock":
 		// Lock all provider vaults and terminate sessions.
@@ -477,10 +483,42 @@ func runRefresh() {
 		os.Exit(1)
 	}
 	if synced {
-		ui.PrintSuccess(providerName + " synced; direnv reload requested")
+		ui.PrintSuccess(providerName + " synced; activation reload requested")
 		return
 	}
-	ui.PrintSuccess(providerName + " will refresh through direnv; no separate sync is available")
+	ui.PrintSuccess(providerName + " will refresh through its activation backend; no separate sync is available")
+}
+
+// runActivate resolves the project's activation backend and makes its artifact
+// ready for the current directory. It is the backend-agnostic entry point that
+// the experimental shell and mise backends will implement later.
+func runActivate() {
+	mode := "direnv"
+	if cfg, err := project.Load(".bwenv.toml"); err == nil {
+		mode = cfg.Activation.Mode
+	} else if !errors.Is(err, os.ErrNotExist) {
+		ui.PrintError("Could not read project config", err)
+		os.Exit(1)
+	}
+
+	activator, err := activation.Get(mode)
+	if err != nil {
+		ui.PrintError("Activation mode", err)
+		os.Exit(1)
+	}
+
+	status := activator.Detect()
+	if !status.Installed {
+		ui.PrintError("Activation backend unavailable", fmt.Errorf("%s: %s", activator.Name(), status.Detail))
+		os.Exit(1)
+	}
+
+	if err := activator.Approve(); err != nil {
+		ui.PrintError("Activate failed", err)
+		os.Exit(1)
+	}
+
+	ui.PrintSuccess(fmt.Sprintf("Activated via %s (%s)", activator.Name(), status.Detail))
 }
 
 // runStatus displays a comprehensive overview of the current bwenv state,
@@ -572,6 +610,7 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Setup:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("init       "), descStyle.Render(ui.E("🚀", "->")+` Interactive setup — pick provider, folder, generate .envrc`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("export     "), descStyle.Render(ui.E("📤", "->")+` Output env vars for .envrc (non-interactive)`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("activate   "), descStyle.Render(ui.E("⚡", "->")+` Make the project's activation artifact ready`))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Secret Management:"))

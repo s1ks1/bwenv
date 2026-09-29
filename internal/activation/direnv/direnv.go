@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/config"
 	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
@@ -27,34 +28,6 @@ const (
 	generatedDirenvTimeout   = `export DIRENV_WARN_TIMEOUT="10m"`
 )
 
-// Config holds the parameters needed to generate a .envrc file. These are
-// collected during the interactive init flow and written into the .envrc so
-// that "bwenv export" can reconstruct the same context when direnv loads it.
-type Config struct {
-	// ProviderSlug is the short identifier for the chosen provider (e.g. "bitwarden").
-	ProviderSlug string
-
-	// FolderName is the human-readable folder name chosen by the user.
-	FolderName string
-
-	// FolderID is the provider-specific unique identifier for the folder.
-	// Stored in .bwenv.toml so we don't look it up by name every time.
-	FolderID string
-
-	// Session is the authentication token (e.g. BW_SESSION for Bitwarden).
-	// For providers that manage sessions internally (like 1Password), this may be empty.
-	Session string
-
-	// Version is the bwenv version that generated this file (for debugging).
-	Version string
-
-	// ItemIDs are the specific secret item IDs the user selected during init.
-	ItemIDs []string `json:"item_ids,omitempty"`
-
-	// ItemNames are the human-readable item names (for the .envrc header only).
-	ItemNames []string `json:"item_names,omitempty"`
-}
-
 // Generate creates a .envrc file in the current directory. The generated file
 // uses direnv's eval mechanism to call "bwenv export", which fetches secrets
 // from the configured provider and folder at shell load time.
@@ -67,7 +40,9 @@ type Config struct {
 //   - DIRENV_WARN_TIMEOUT uses Go duration format ("10m") required by direnv v2.30+.
 //   - BW_SESSION is stored in .envrc for Bitwarden users; it is never written
 //     to the separate .bwenv.toml project metadata file.
-func Generate(cfg Config) error {
+//
+// Render builds the .envrc content for cfg without writing anything.
+func Render(cfg activation.Config) ([]byte, error) {
 	// Load user preferences to decide whether to silence direnv output.
 	userCfg, _ := config.Load()
 
@@ -117,6 +92,28 @@ func Generate(cfg Config) error {
 	b.WriteString("# Load secrets from the provider into the environment\n")
 	exportCommand := ""
 	if cfg.FolderID != "" {
+		exportCommand = "bwenv export --project ."
+	} else {
+		exportCommand = fmt.Sprintf("bwenv export --provider %s", shell.Escape(cfg.ProviderSlug))
+		exportCommand += " --folder " + shell.Quote(cfg.FolderName)
+		if len(cfg.ItemIDs) > 0 {
+			exportCommand += " --items " + shell.Quote(strings.Join(cfg.ItemIDs, ","))
+		}
+	}
+	b.WriteString(fmt.Sprintf("eval \"$(%s)\"\n", exportCommand))
+
+	return []byte(b.String()), nil
+}
+
+// Install writes the project metadata and the generated .envrc with restrictive
+// permissions (owner read/write only).
+func Install(cfg activation.Config) error {
+	content, err := Render(cfg)
+	if err != nil {
+		return err
+	}
+
+	if cfg.FolderID != "" {
 		projectCfg := project.Config{
 			Version:  project.ConfigVersion,
 			Provider: cfg.ProviderSlug,
@@ -130,25 +127,26 @@ func Generate(cfg Config) error {
 		if err := project.Write(".bwenv.toml", projectCfg); err != nil {
 			return err
 		}
-		exportCommand = "bwenv export --project ."
 	} else {
 		if err := os.Remove(".bwenv.toml"); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove stale .bwenv.toml: %w", err)
 		}
-		exportCommand = fmt.Sprintf("bwenv export --provider %s",
-			shell.Escape(cfg.ProviderSlug))
-		exportCommand += " --folder " + shell.Quote(cfg.FolderName)
-		if len(cfg.ItemIDs) > 0 {
-			exportCommand += " --items " + shell.Quote(strings.Join(cfg.ItemIDs, ","))
-		}
 	}
-	b.WriteString(fmt.Sprintf("eval \"$(%s)\"\n", exportCommand))
 
-	// Write the file with restrictive permissions (owner read/write only).
-	if err := os.WriteFile(".envrc", []byte(b.String()), 0600); err != nil {
+	if err := os.WriteFile(".envrc", content, 0600); err != nil {
 		return fmt.Errorf("failed to write .envrc: %w", err)
 	}
 
+	return nil
+}
+
+// Remove deletes the .envrc activation artifact and revokes direnv's approval.
+// It leaves .bwenv.toml to the caller.
+func Remove() error {
+	_ = Disallow()
+	if err := os.Remove(".envrc"); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove .envrc: %w", err)
+	}
 	return nil
 }
 
