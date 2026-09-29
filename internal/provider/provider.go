@@ -31,8 +31,10 @@ type SecretItem struct {
 	Name string // Human-readable name shown in the UI
 }
 
-// Provider is the interface that all secret providers must implement.
-// Each provider wraps a CLI tool (bw, op, etc.) and exposes a uniform API.
+// Provider is the minimal contract every secret provider fulfils: identity and
+// availability. Richer behaviour is opted into through the capability
+// interfaces below, so a provider is never forced to implement features it does
+// not have (e.g. folders, sync).
 type Provider interface {
 	// Name returns the display name of this provider (e.g. "Bitwarden").
 	Name() string
@@ -48,41 +50,44 @@ type Provider interface {
 
 	// IsAvailable checks if the provider's CLI tool is installed and reachable.
 	IsAvailable() bool
+}
 
-	// IsAuthenticated checks if the user is currently logged in / has a valid session.
-	IsAuthenticated(ctx context.Context) bool
-
+// Authenticator is implemented by providers that sign in and hold a session.
+type Authenticator interface {
 	// Authenticate unlocks or signs in to the provider's vault.
 	// Returns a session token (or empty string if not applicable).
 	Authenticate(ctx context.Context) (session string, err error)
 
 	// AuthenticateNonInteractive returns the current session without prompting
-	// or performing sync. Hot-path commands use the requested operation itself
-	// to validate access.
+	// or performing sync. Hot-path commands validate access through the
+	// requested operation itself.
 	AuthenticateNonInteractive(ctx context.Context) (session string, err error)
 
+	// IsAuthenticated checks if the user currently has a valid session.
+	IsAuthenticated(ctx context.Context) bool
+}
+
+// FolderLister is implemented by providers that expose folders/vaults and items.
+type FolderLister interface {
 	// ListFolders returns all folders/vaults available in the provider.
-	// The session parameter may be needed for providers like Bitwarden.
 	ListFolders(ctx context.Context, session string) ([]Folder, error)
 
+	// ListItems returns all secret items within the given folder.
+	ListItems(ctx context.Context, session string, folder Folder) ([]SecretItem, error)
+}
+
+// SecretFetcher is implemented by providers that retrieve secret key-values.
+type SecretFetcher interface {
 	// GetSecrets retrieves all key-value secrets from the specified folder.
-	// The session parameter may be needed for providers like Bitwarden.
 	GetSecrets(ctx context.Context, session string, folder Folder) ([]Secret, error)
 
-	// ListItems returns all secret items/entries within the given folder.
-	// Items are displayed in the interactive picker so users can choose
-	// which specific items to load secrets from.
-	ListItems(ctx context.Context, session string, folder Folder) ([]SecretItem, error)
-
-	// GetSecretsByItemIDs retrieves secrets only from the specified items in a
-	// folder.
-	// When itemIDs is non-empty, this is used instead of GetSecrets so that
-	// users can selectively load only the items they need from a folder.
+	// GetSecretsByItemIDs retrieves secrets only from the specified items.
 	GetSecretsByItemIDs(ctx context.Context, session string, folder Folder, itemIDs []string) ([]Secret, error)
+}
 
+// Locker is implemented by providers that can terminate a session.
+type Locker interface {
 	// Lock terminates the current session / locks the vault.
-	// For Bitwarden this runs "bw lock", for 1Password "op signout".
-	// Returns nil if the provider has no active session or locking is not applicable.
 	Lock(ctx context.Context) error
 }
 

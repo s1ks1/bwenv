@@ -94,11 +94,24 @@ func RunInitFlow(version string, activationMode string) error {
 		PrintSuccess(fmt.Sprintf("Selected: %s", chosenProvider.Name()))
 	}
 
+	authProvider, err := provider.AsAuthenticator(chosenProvider)
+	if err != nil {
+		return fmt.Errorf("provider %s is not usable: %w", chosenProvider.Name(), err)
+	}
+	folderLister, err := provider.AsFolderLister(chosenProvider)
+	if err != nil {
+		return fmt.Errorf("provider %s is not usable: %w", chosenProvider.Name(), err)
+	}
+	fetcher, err := provider.AsSecretFetcher(chosenProvider)
+	if err != nil {
+		return fmt.Errorf("provider %s is not usable: %w", chosenProvider.Name(), err)
+	}
+
 	// -- Step 3: Authenticate with the provider --
 	PrintStep(2, totalSteps, E("🔓", "[>]")+" Authenticating with "+chosenProvider.Name()+"...")
 	fmt.Println()
 
-	session, err := chosenProvider.Authenticate(ctx)
+	session, err := authProvider.Authenticate(ctx)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -109,7 +122,7 @@ func RunInitFlow(version string, activationMode string) error {
 	// -- Step 4: Fetch the folder list --
 	PrintStep(3, totalSteps, E("📂", "[>]")+" Fetching folders from "+chosenProvider.Name()+"...")
 
-	folders, err := chosenProvider.ListFolders(ctx, session)
+	folders, err := folderLister.ListFolders(ctx, session)
 	if err != nil {
 		return fmt.Errorf("failed to list folders: %w", err)
 	}
@@ -155,7 +168,7 @@ func RunInitFlow(version string, activationMode string) error {
 	var itemIDs []string
 	var itemNames []string
 
-	items, listErr := chosenProvider.ListItems(ctx, session, *chosenFolder)
+	items, listErr := folderLister.ListItems(ctx, session, *chosenFolder)
 	if listErr != nil {
 		PrintWarning(fmt.Sprintf("Could not list items: %v", listErr))
 		PrintInfo("All items in the folder will be loaded instead.")
@@ -204,9 +217,9 @@ func RunInitFlow(version string, activationMode string) error {
 
 	var varNames []string
 	if len(itemIDs) > 0 {
-		varNames, err = export.PreviewSecretsByIDs(ctx, chosenProvider, session, *chosenFolder, itemIDs)
+		varNames, err = export.PreviewSecretsByIDs(ctx, fetcher, session, *chosenFolder, itemIDs)
 	} else {
-		varNames, err = export.PreviewSecrets(ctx, chosenProvider, session, *chosenFolder)
+		varNames, err = export.PreviewSecrets(ctx, fetcher, session, *chosenFolder)
 	}
 	if err != nil {
 		PrintWarning(fmt.Sprintf("Could not preview secrets: %v", err))

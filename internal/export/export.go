@@ -276,7 +276,11 @@ func Refresh() (providerName string, synced bool, err error) {
 	if !p.IsAvailable() {
 		return "", false, fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
 	}
-	if !p.IsAuthenticated(ctx) {
+	auth, authErr := provider.AsAuthenticator(p)
+	if authErr != nil {
+		return "", false, authErr
+	}
+	if !auth.IsAuthenticated(ctx) {
 		return "", false, fmt.Errorf("%s session is not active; run 'bwenv login'", p.Name())
 	}
 	if syncer, ok := p.(provider.Syncer); ok {
@@ -480,14 +484,19 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 	}
 
 	// Authenticate with the provider.
+	auth, authErr := provider.AsAuthenticator(p)
+	if authErr != nil {
+		printExportError("Provider unsupported", authErr)
+		return "", authErr
+	}
 	var session string
 	if interactive {
 		// Interactive mode (bwenv allow): may prompt for master password.
-		session, err = p.Authenticate(ctx)
+		session, err = auth.Authenticate(ctx)
 	} else {
 		// Non-interactive mode never probes, prompts, or syncs. The requested
 		// provider operation is the session validation.
-		session, err = p.AuthenticateNonInteractive(ctx)
+		session, err = auth.AuthenticateNonInteractive(ctx)
 	}
 	if err != nil {
 		printExportError("Authentication failed", err)
@@ -499,7 +508,12 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 		targetFolder = provider.Folder{ID: folderID, Name: folderName}
 	} else {
 		// Legacy projects resolve the folder by name for compatibility.
-		folders, listErr := p.ListFolders(ctx, session)
+		lister, listerErr := provider.AsFolderLister(p)
+		if listerErr != nil {
+			printExportError("Provider unsupported", listerErr)
+			return session, listerErr
+		}
+		folders, listErr := lister.ListFolders(ctx, session)
 		if listErr != nil {
 			printExportError("Could not list folders", listErr)
 			return session, fmt.Errorf("failed to list folders from %s: %w", p.Name(), listErr)
@@ -518,11 +532,16 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 	}
 
 	// Fetch secrets — either all items in folder or specific items only.
+	fetcher, fetchErr := provider.AsSecretFetcher(p)
+	if fetchErr != nil {
+		printExportError("Provider unsupported", fetchErr)
+		return session, fetchErr
+	}
 	var secrets []provider.Secret
 	if len(itemIDs) > 0 {
-		secrets, err = p.GetSecretsByItemIDs(ctx, session, targetFolder, itemIDs)
+		secrets, err = fetcher.GetSecretsByItemIDs(ctx, session, targetFolder, itemIDs)
 	} else {
-		secrets, err = p.GetSecrets(ctx, session, targetFolder)
+		secrets, err = fetcher.GetSecrets(ctx, session, targetFolder)
 	}
 	if err != nil {
 		printExportError("Could not fetch secrets", err)
@@ -559,7 +578,7 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 // PreviewSecrets fetches secrets from the given provider and folder and returns
 // just the key names (not values). This is used during "bwenv init" to show
 // the user what variables will be loaded, without exposing actual secret values.
-func PreviewSecrets(ctx context.Context, p provider.Provider, session string, folder provider.Folder) ([]string, error) {
+func PreviewSecrets(ctx context.Context, p provider.SecretFetcher, session string, folder provider.Folder) ([]string, error) {
 	secrets, err := p.GetSecrets(ctx, session, folder)
 	if err != nil {
 		return nil, err
@@ -575,7 +594,7 @@ func PreviewSecrets(ctx context.Context, p provider.Provider, session string, fo
 // PreviewSecretsByIDs fetches secrets only from specific items and returns
 // just the key names (not values). Used when the user selected individual
 // items during "bwenv init" instead of loading the entire folder.
-func PreviewSecretsByIDs(ctx context.Context, p provider.Provider, session string, folder provider.Folder, itemIDs []string) ([]string, error) {
+func PreviewSecretsByIDs(ctx context.Context, p provider.SecretFetcher, session string, folder provider.Folder, itemIDs []string) ([]string, error) {
 	secrets, err := p.GetSecretsByItemIDs(ctx, session, folder, itemIDs)
 	if err != nil {
 		return nil, err

@@ -56,8 +56,13 @@ func RunDoctorFlow(version string) error {
 			available := p.IsAvailable()
 			check(available, p.Name(), providerDoctorDetail(available, p.CLICommand()))
 			if available {
-				authenticated := p.IsAuthenticated(ctx)
-				check(authenticated, "Provider session", statusDetail(!authenticated, "active", "run 'bwenv login' to authenticate"))
+				auth, authErr := provider.AsAuthenticator(p)
+				if authErr != nil {
+					check(false, "Provider session", "provider does not support authentication")
+				} else {
+					authenticated := auth.IsAuthenticated(ctx)
+					check(authenticated, "Provider session", statusDetail(!authenticated, "active", "run 'bwenv login' to authenticate"))
+				}
 			}
 		}
 	}

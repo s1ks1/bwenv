@@ -24,7 +24,12 @@ func Reauthenticate(ctx context.Context, providerSlug string) (string, error) {
 		return "", fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
 	}
 
-	session, err := p.Authenticate(ctx)
+	auth, err := provider.AsAuthenticator(p)
+	if err != nil {
+		return "", err
+	}
+
+	session, err := auth.Authenticate(ctx)
 	if err != nil {
 		return "", fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
 	}

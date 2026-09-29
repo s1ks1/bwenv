@@ -59,6 +59,19 @@ func RunLoginFlow(version string) error {
 		return fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
 	}
 
+	auth, authErr := provider.AsAuthenticator(p)
+	if authErr != nil {
+		return authErr
+	}
+	folderLister, listerErr := provider.AsFolderLister(p)
+	if listerErr != nil {
+		return listerErr
+	}
+	fetcher, fetchErr := provider.AsSecretFetcher(p)
+	if fetchErr != nil {
+		return fetchErr
+	}
+
 	// Show what we're doing.
 	provName := lipgloss.NewStyle().
 		Bold(true).
@@ -73,7 +86,7 @@ func RunLoginFlow(version string) error {
 	fmt.Println()
 
 	// Show current auth status for context.
-	if p.IsAuthenticated(ctx) {
+	if auth.IsAuthenticated(ctx) {
 		PrintSuccess(E("🔓", "->") + " Already authenticated — session is valid")
 		fmt.Println()
 	} else {
@@ -82,7 +95,7 @@ func RunLoginFlow(version string) error {
 	}
 
 	// Authenticate interactively (may prompt for master password / biometrics).
-	session, err := p.Authenticate(ctx)
+	session, err := auth.Authenticate(ctx)
 	if err != nil {
 		PrintBoxError(
 			E("❌", "[ERROR]")+" Authentication failed",
@@ -110,7 +123,7 @@ func RunLoginFlow(version string) error {
 	// Step 2: Verify we can access the configured folder.
 	PrintStep(2, 2, fmt.Sprintf("%s Verifying access to %s...", E("📂", "[>]"), folderStyled))
 
-	folders, err := p.ListFolders(ctx, session)
+	folders, err := folderLister.ListFolders(ctx, session)
 	if err != nil {
 		return fmt.Errorf("failed to list folders: %w", err)
 	}
@@ -130,7 +143,7 @@ func RunLoginFlow(version string) error {
 	}
 
 	// Preview secrets to confirm they're accessible.
-	varNames, err := export.PreviewSecrets(ctx, p, session, *targetFolder)
+	varNames, err := export.PreviewSecrets(ctx, fetcher, session, *targetFolder)
 	if err != nil {
 		PrintWarning(fmt.Sprintf("Could not verify secrets: %v", err))
 	} else {

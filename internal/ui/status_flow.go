@@ -99,7 +99,11 @@ func RunStatusFlow(version string) error {
 
 			availableCount++
 
-			if p.IsAuthenticated(ctx) {
+			authenticated := false
+			if auth, authErr := provider.AsAuthenticator(p); authErr == nil {
+				authenticated = auth.IsAuthenticated(ctx)
+			}
+			if authenticated {
 				activeCount++
 				PrintStatusLine(true, p.Name(),
 					lipgloss.NewStyle().Foreground(ColorSuccess).Render("session active"))

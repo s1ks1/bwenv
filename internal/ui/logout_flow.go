@@ -48,7 +48,9 @@ func RunLogoutFlow(version string) error {
 	var results []lockResult
 
 	for _, p := range allProviders {
-		wasAuthenticated := p.IsAuthenticated(ctx)
+		auth, authErr := provider.AsAuthenticator(p)
+		locker, lockErr := provider.AsLocker(p)
+		wasAuthenticated := authErr == nil && auth.IsAuthenticated(ctx)
 
 		if !wasAuthenticated {
 			results = append(results, lockResult{
@@ -60,12 +62,17 @@ func RunLogoutFlow(version string) error {
 		}
 
 		// Attempt to lock/sign out.
-		err := p.Lock(ctx)
+		var attemptErr error
+		if lockErr == nil {
+			attemptErr = locker.Lock(ctx)
+		} else {
+			attemptErr = lockErr
+		}
 		results = append(results, lockResult{
 			name:    p.Name(),
 			wasAuth: true,
-			locked:  err == nil,
-			err:     err,
+			locked:  attemptErr == nil,
+			err:     attemptErr,
 		})
 	}
 
