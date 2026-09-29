@@ -334,9 +334,21 @@ func extractShellFlag(line string, flag string) string {
 		if strings.HasPrefix(rest, "=") {
 			rest = strings.TrimSpace(strings.TrimPrefix(rest, "="))
 		}
-		if len(rest) > 0 && (rest[0] == '\'' || rest[0] == '"') {
-			quote := rest[0]
-			if end := strings.IndexByte(rest[1:], quote); end >= 0 {
+		if len(rest) > 0 && rest[0] == '\'' {
+			// Single-quoted values may contain escaped quotes (the '\'' that
+			// shell.Quote emits for apostrophes); scan to the real closing
+			// quote, then unescape with the canonical helper (PER-44).
+			tokenEnd := singleQuoteTokenEnd(rest)
+			if tokenEnd < 0 {
+				return ""
+			}
+			if value, ok := unquoteShellValue(rest[:tokenEnd]); ok {
+				return value
+			}
+			return ""
+		}
+		if len(rest) > 0 && rest[0] == '"' {
+			if end := strings.IndexByte(rest[1:], '"'); end >= 0 {
 				return rest[1 : end+1]
 			}
 			return ""
@@ -347,6 +359,26 @@ func extractShellFlag(line string, flag string) string {
 		return ""
 	}
 	return ""
+}
+
+// singleQuoteTokenEnd returns the byte offset just past the closing single
+// quote of a shell-quoted token, skipping over '\” escape sequences.
+// Returns -1 when the token is never closed.
+func singleQuoteTokenEnd(s string) int {
+	if len(s) == 0 || s[0] != '\'' {
+		return -1
+	}
+	for i := 1; i < len(s); {
+		if strings.HasPrefix(s[i:], `'\''`) {
+			i += 4
+			continue
+		}
+		if s[i] == '\'' {
+			return i + 1
+		}
+		i++
+	}
+	return -1
 }
 
 // SilenceGlobally adds the styled DIRENV_LOG_FORMAT and DIRENV_WARN_TIMEOUT to
