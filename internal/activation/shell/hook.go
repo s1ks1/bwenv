@@ -22,9 +22,13 @@ var SupportedShells = []string{"zsh", "bash", "fish"}
 func Hook(shellName string) (string, error) {
 	switch shellName {
 	case "zsh":
-		return hookPOSIX + "\nprecmd_functions+=(_bwenv_prompt_hook)\n", nil
+		// Guard against re-source duplication: precmd_functions+= appends on
+		// every source, running the hook twice per prompt otherwise (PER-45).
+		return hookPOSIX + "\n(( ${precmd_functions[(I)_bwenv_prompt_hook]:-0} )) || precmd_functions+=(_bwenv_prompt_hook)\n", nil
 	case "bash":
-		return hookPOSIX + "\nPROMPT_COMMAND=\"_bwenv_prompt_hook${PROMPT_COMMAND:+;$PROMPT_COMMAND}\"\n", nil
+		// Same guard as zsh for PROMPT_COMMAND (PER-45): skip the prepend when
+		// the hook is already registered.
+		return hookPOSIX + "\ncase \"$PROMPT_COMMAND\" in\n  *_bwenv_prompt_hook*) ;;\n  *) PROMPT_COMMAND=\"_bwenv_prompt_hook${PROMPT_COMMAND:+;$PROMPT_COMMAND}\" ;;\nesac\n", nil
 	case "fish":
 		return hookFish, nil
 	default:

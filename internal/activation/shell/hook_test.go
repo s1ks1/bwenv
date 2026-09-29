@@ -1,6 +1,9 @@
 package shell
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,5 +40,76 @@ func TestDetectShell(t *testing.T) {
 		if got := DetectShell(in); got != want {
 			t.Errorf("DetectShell(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestBashHookIdempotentOnResource is the regression test for PER-45: sourcing
+// the RC file twice used to prepend _bwenv_prompt_hook to PROMPT_COMMAND again,
+// running the hook twice per prompt.
+func TestBashHookIdempotentOnResource(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available")
+	}
+	snippet, err := Hook("bash")
+	if err != nil {
+		t.Fatalf("Hook(bash): %v", err)
+	}
+	hookFile := filepath.Join(t.TempDir(), "hook.sh")
+	if err := os.WriteFile(hookFile, []byte(snippet), 0644); err != nil {
+		t.Fatalf("write hook: %v", err)
+	}
+
+	script := `PROMPT_COMMAND="$2"
+source "$1"
+source "$1"
+printf '%s' "$PROMPT_COMMAND"`
+
+	for _, start := range []string{"", "existing_cmd"} {
+		out, err := exec.Command(bash, "-c", script, "bash", hookFile, start).CombinedOutput()
+		if err != nil {
+			t.Fatalf("bash -c (start=%q): %v\n%s", start, err, out)
+		}
+		got := string(out)
+		if n := strings.Count(got, "_bwenv_prompt_hook"); n != 1 {
+			t.Errorf("PROMPT_COMMAND after double source (start=%q): %d hook entries, want 1: %q", start, n, got)
+		}
+		if start != "" && !strings.Contains(got, start) {
+			t.Errorf("PROMPT_COMMAND lost pre-existing entries (start=%q): %q", start, got)
+		}
+	}
+}
+
+// TestZshHookIdempotentOnResource covers the same PER-45 bug class for zsh:
+// precmd_functions+=(_bwenv_prompt_hook) duplicated on every re-source.
+func TestZshHookIdempotentOnResource(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not available")
+	}
+	snippet, err := Hook("zsh")
+	if err != nil {
+		t.Fatalf("Hook(zsh): %v", err)
+	}
+	hookFile := filepath.Join(t.TempDir(), "hook.zsh")
+	if err := os.WriteFile(hookFile, []byte(snippet), 0644); err != nil {
+		t.Fatalf("write hook: %v", err)
+	}
+
+	script := `precmd_functions=(existing_fn)
+source "$1"
+source "$1"
+print -r -- "${precmd_functions}"`
+
+	out, err := exec.Command(zsh, "-c", script, "zsh", hookFile).CombinedOutput()
+	if err != nil {
+		t.Fatalf("zsh -c: %v\n%s", err, out)
+	}
+	got := string(out)
+	if n := strings.Count(got, "_bwenv_prompt_hook"); n != 1 {
+		t.Errorf("precmd_functions after double source: %d hook entries, want 1: %q", n, got)
+	}
+	if !strings.Contains(got, "existing_fn") {
+		t.Errorf("precmd_functions lost pre-existing entries: %q", got)
 	}
 }
