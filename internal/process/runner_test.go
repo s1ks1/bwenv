@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v3/internal/diagnostics"
 )
 
 // TestExecRunnerHelperProcess is not a real test. The runner tests re-execute

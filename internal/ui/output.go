@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/config"
 )
 
 // E returns the emoji string if ShowEmoji is enabled in the user config,

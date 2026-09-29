@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s1ks1/bwenv/v2/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/process"
 )
 
 // Bitwarden implements the Provider interface using the Bitwarden CLI.

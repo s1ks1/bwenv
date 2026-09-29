@@ -125,7 +125,7 @@ sudo rpm -i bwenv_*_amd64.rpm
 **Go:**
 
 ```bash
-go install github.com/s1ks1/bwenv/v2@latest
+go install github.com/s1ks1/bwenv/v3@latest
 ```
 
 **Install script (macOS / Linux):**

@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/config"
 )
 
 // configOption represents a single toggleable setting in the config TUI.

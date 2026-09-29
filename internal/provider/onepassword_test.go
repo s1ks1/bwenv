@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s1ks1/bwenv/v2/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/process"
 )
 
 func TestOnePasswordVaultJSON(t *testing.T) {

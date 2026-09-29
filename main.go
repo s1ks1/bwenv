@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/benchmark"
-	"github.com/s1ks1/bwenv/v2/internal/envrc"
-	"github.com/s1ks1/bwenv/v2/internal/ui"
+	"github.com/s1ks1/bwenv/v3/internal/benchmark"
+	"github.com/s1ks1/bwenv/v3/internal/envrc"
+	"github.com/s1ks1/bwenv/v3/internal/ui"
 )
 
 // Version is injected at build time via -ldflags (GoReleaser/Makefile).
@@ -25,7 +25,7 @@ func init() {
 	if Version != "" {
 		return
 	}
-	Version = "v2.4.0-dev"
+	Version = "v3.0.0-dev"
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		return
@@ -44,7 +44,7 @@ func init() {
 		}
 	}
 	if len(rev) >= 7 {
-		Version = "v2.4.0-dev+" + rev[:7]
+		Version = "v3.0.0-dev+" + rev[:7]
 		if modified == "true" {
 			Version += "-dirty"
 		}

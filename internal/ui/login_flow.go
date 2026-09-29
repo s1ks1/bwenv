@@ -12,8 +12,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/envrc"
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/envrc"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 // RunLoginFlow is the interactive TTY handler for "bwenv login".

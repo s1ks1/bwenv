@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 // RunDoctorFlow prints diagnostics suitable for sharing in an issue report.

@@ -16,14 +16,14 @@
 
 # Application name and module path.
 APP_NAME    := bwenv
-MODULE      := github.com/s1ks1/bwenv/v2
+MODULE      := github.com/s1ks1/bwenv/v3
 
 # Version detection strategy:
 #   1. If the checkout is clean and exactly on a tag, use that tag
 #   2. Otherwise use the shared development fallback (keep in sync with the
 #      fallback in main.go init())
 # GoReleaser and CI override this via ldflags for real releases.
-VERSION     := $(shell git diff --quiet HEAD -- 2>/dev/null && git describe --tags --exact-match 2>/dev/null || echo "v2.4.0-dev")
+VERSION     := $(shell git diff --quiet HEAD -- 2>/dev/null && git describe --tags --exact-match 2>/dev/null || echo "v3.0.0-dev")
 COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE  := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 

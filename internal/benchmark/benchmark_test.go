@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
-	"github.com/s1ks1/bwenv/v2/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v3/internal/process"
 )
 
 func installFakeCLI(t *testing.T) string {

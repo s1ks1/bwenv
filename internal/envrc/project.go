@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 const projectConfigVersion = 1
