@@ -25,14 +25,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/config"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 // emojiStr returns the emoji if ShowEmoji is enabled in the user config,
@@ -187,7 +186,7 @@ func Generate(cfg Config) error {
 	if cfg.Session != "" {
 		b.WriteString("# Bitwarden session token (required for vault access)\n")
 		b.WriteString("# This token expires — run 'bwenv login' to re-authenticate.\n")
-		b.WriteString(fmt.Sprintf("export BW_SESSION=%s\n", shellQuote(cfg.Session)))
+		b.WriteString(fmt.Sprintf("export BW_SESSION=%s\n", shell.Quote(cfg.Session)))
 		b.WriteString("\n")
 	}
 
@@ -208,10 +207,10 @@ func Generate(cfg Config) error {
 			return fmt.Errorf("remove stale .bwenv.toml: %w", err)
 		}
 		exportCommand = fmt.Sprintf("bwenv export --provider %s",
-			shellEscape(cfg.ProviderSlug))
-		exportCommand += " --folder " + shellQuote(cfg.FolderName)
+			shell.Escape(cfg.ProviderSlug))
+		exportCommand += " --folder " + shell.Quote(cfg.FolderName)
 		if len(cfg.ItemIDs) > 0 {
-			exportCommand += " --items " + shellQuote(strings.Join(cfg.ItemIDs, ","))
+			exportCommand += " --items " + shell.Quote(strings.Join(cfg.ItemIDs, ","))
 		}
 	}
 	b.WriteString(fmt.Sprintf("eval \"$(%s)\"\n", exportCommand))
@@ -244,7 +243,7 @@ func UpdateSession(newSession string) error {
 
 	lines := strings.Split(string(content), "\n")
 	found := false
-	newLine := fmt.Sprintf("export BW_SESSION=%s", shellQuote(newSession))
+	newLine := fmt.Sprintf("export BW_SESSION=%s", shell.Quote(newSession))
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -320,7 +319,7 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 	// fresh BW_SESSION from the parent environment, overriding the
 	// potentially stale one in .envrc. No second password prompt.
 	if session != "" {
-		fmt.Printf("export BW_SESSION=%s\n", shellQuote(session))
+		fmt.Printf("export BW_SESSION=%s\n", shell.Quote(session))
 	}
 
 	// Step 4: Ensure DIRENV_LOG_FORMAT is set in the parent shell so the
@@ -366,7 +365,7 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 
 	// Step 3: Output the fresh session token so the parent shell has it.
 	if session != "" {
-		fmt.Printf("export BW_SESSION=%s\n", shellQuote(session))
+		fmt.Printf("export BW_SESSION=%s\n", shell.Quote(session))
 	}
 
 	// Step 4: Ensure DIRENV_LOG_FORMAT is set in the parent shell.
@@ -728,13 +727,13 @@ func SilenceDirenvGlobally() (modified bool, filePath string, err error) {
 	const markerTimeout = "DIRENV_WARN_TIMEOUT"
 
 	// Determine which shell RC file to modify.
-	rcPath, err := detectShellRC()
+	rcPath, err := shell.DetectRC()
 	if err != nil {
 		return false, "", err
 	}
 
 	// Shorten for display purposes (e.g. /Users/john/.zshrc → ~/.zshrc).
-	displayPath := shortenHomePath(rcPath)
+	displayPath := shell.ShortenHomePath(rcPath)
 
 	// Read the existing file content (if it exists).
 	content, err := os.ReadFile(rcPath)
@@ -774,153 +773,6 @@ func SilenceDirenvGlobally() (modified bool, filePath string, err error) {
 	}
 
 	return true, displayPath, nil
-}
-
-// ── Shell wrapper ───────────────────────────────────────────────────────────
-
-// shellWrapperMarker is the unique string we look for to detect if the
-// bwenv shell wrapper function is already installed.
-const shellWrapperMarker = "# bwenv shell integration"
-
-// shellWrapperBashZsh is the shell function for bash/zsh that wraps bwenv
-// commands. Commands that produce shell code (export/unset) are eval'd
-// transparently, so "bwenv allow" / "bwenv disallow" / "bwenv remove" /
-// "bwenv login" can modify the current shell's environment directly.
-const shellWrapperBashZsh = `
-# bwenv shell integration — enables seamless secret management
-# Commands like allow/disallow/remove/login modify your shell environment directly.
-bwenv() {
-  case "${1:-}" in
-    allow|disallow|deny|remove|clean|export|load|login|auth)
-      local _bwenv_out
-      _bwenv_out="$(command bwenv "$@")"
-      local _bwenv_rc=$?
-      [ $_bwenv_rc -eq 0 ] && [ -n "$_bwenv_out" ] && eval "$_bwenv_out"
-      return $_bwenv_rc
-      ;;
-    *)
-      command bwenv "$@"
-      ;;
-  esac
-}
-`
-
-// shellWrapperFish is the shell function for fish shell.
-const shellWrapperFish = `
-# bwenv shell integration — enables seamless secret management
-function bwenv
-  switch $argv[1]
-    case allow disallow deny remove clean export load login auth
-      set -l _out (command bwenv $argv)
-      set -l _rc $status
-      if test $_rc -eq 0 -a -n "$_out"
-        eval $_out
-      end
-      return $_rc
-    case '*'
-      command bwenv $argv
-  end
-end
-`
-
-// InstallShellWrapper adds the bwenv() shell wrapper function to the user's
-// shell RC file. This wrapper transparently eval's the output of commands
-// like "bwenv allow", "bwenv disallow", and "bwenv remove" so they can
-// modify the current shell's environment (set/unset variables) directly.
-//
-// Without the wrapper, these commands would require the user to manually
-// type eval "$(bwenv allow)" etc.
-//
-// Returns (modified bool, filePath string, err error):
-//   - modified=true  → wrapper was added to the RC file
-//   - modified=false → wrapper already present or error occurred
-func InstallShellWrapper() (modified bool, filePath string, err error) {
-	rcPath, err := detectShellRC()
-	if err != nil {
-		return false, "", err
-	}
-
-	displayPath := shortenHomePath(rcPath)
-
-	// Read the existing file to check if wrapper is already installed.
-	content, err := os.ReadFile(rcPath)
-	if err != nil && !os.IsNotExist(err) {
-		return false, displayPath, fmt.Errorf("could not read %s: %w", displayPath, err)
-	}
-
-	if strings.Contains(string(content), shellWrapperMarker) {
-		return false, displayPath, nil
-	}
-
-	// Determine which wrapper to install based on the shell.
-	shellName := filepath.Base(os.Getenv("SHELL"))
-	wrapper := shellWrapperBashZsh
-	if shellName == "fish" {
-		wrapper = shellWrapperFish
-	}
-
-	f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return false, displayPath, fmt.Errorf("could not write to %s: %w", displayPath, err)
-	}
-	defer f.Close()
-
-	if _, err := f.WriteString(wrapper); err != nil {
-		return false, displayPath, fmt.Errorf("failed to append to %s: %w", displayPath, err)
-	}
-
-	return true, displayPath, nil
-}
-
-// detectShellRC returns the path to the user's primary shell RC file.
-// It checks the SHELL environment variable and maps to the corresponding RC file.
-func detectShellRC() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("could not determine home directory: %w", err)
-	}
-
-	// Detect the user's shell from the SHELL env var.
-	shellPath := os.Getenv("SHELL")
-	shellName := filepath.Base(shellPath)
-
-	switch shellName {
-	case "zsh":
-		return filepath.Join(home, ".zshrc"), nil
-	case "bash":
-		// On macOS, .bash_profile is preferred over .bashrc for login shells.
-		if runtime.GOOS == "darwin" {
-			profile := filepath.Join(home, ".bash_profile")
-			if _, err := os.Stat(profile); err == nil {
-				return profile, nil
-			}
-		}
-		return filepath.Join(home, ".bashrc"), nil
-	case "fish":
-		return filepath.Join(home, ".config", "fish", "config.fish"), nil
-	default:
-		// Fallback: try zshrc (default on macOS), then bashrc.
-		if runtime.GOOS == "darwin" {
-			return filepath.Join(home, ".zshrc"), nil
-		}
-		return filepath.Join(home, ".bashrc"), nil
-	}
-}
-
-// shortenHomePath uses the shared ui helper (kept as a local alias
-// to avoid importing the ui package which would create circular deps).
-func shortenHomePath(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if strings.HasPrefix(path, home) {
-		return filepath.ToSlash("~" + path[len(home):])
-	}
-	return path
 }
 
 // ── Export command ───────────────────────────────────────────────────────────
@@ -1033,8 +885,8 @@ func exportSecrets(providerSlug string, folderName string, folderID string, item
 	// Print each secret as an export statement to stdout.
 	// direnv will eval this output to set the environment variables.
 	for _, s := range secrets {
-		key := sanitizeKey(s.Key)
-		fmt.Printf("export %s=%s\n", key, shellQuote(s.Value))
+		key := shell.SanitizeKey(s.Key)
+		fmt.Printf("export %s=%s\n", key, shell.Quote(s.Value))
 		varNames = append(varNames, key)
 	}
 
@@ -1065,7 +917,7 @@ func PreviewSecrets(p provider.Provider, session string, folder provider.Folder)
 
 	names := make([]string, 0, len(secrets))
 	for _, s := range secrets {
-		names = append(names, sanitizeKey(s.Key))
+		names = append(names, shell.SanitizeKey(s.Key))
 	}
 	return names, nil
 }
@@ -1081,7 +933,7 @@ func PreviewSecretsByIDs(p provider.Provider, session string, folder provider.Fo
 
 	names := make([]string, 0, len(secrets))
 	for _, s := range secrets {
-		names = append(names, sanitizeKey(s.Key))
+		names = append(names, shell.SanitizeKey(s.Key))
 	}
 	return names, nil
 }
@@ -1217,65 +1069,4 @@ func printExportError(label string, err error) {
 
 	brand := summaryBrand.Render(emojiStr("🔐", "[*]") + " bwenv")
 	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
-}
-
-// ── Shell escaping helpers ─────────────────────────────────────────────────
-
-// sanitizeKey ensures an environment variable name is valid for POSIX shells.
-// It replaces any characters that aren't alphanumeric or underscores with
-// underscores. Leading digits are prefixed with an underscore since env var
-// names can't start with a digit.
-func sanitizeKey(key string) string {
-	if key == "" {
-		return "_EMPTY_KEY"
-	}
-
-	var b strings.Builder
-	for i, ch := range key {
-		switch {
-		case ch >= 'A' && ch <= 'Z':
-			b.WriteRune(ch)
-		case ch >= 'a' && ch <= 'z':
-			b.WriteRune(ch)
-		case ch >= '0' && ch <= '9':
-			if i == 0 {
-				b.WriteRune('_') // Env var names can't start with a digit.
-			}
-			b.WriteRune(ch)
-		case ch == '_':
-			b.WriteRune(ch)
-		default:
-			b.WriteRune('_') // Replace any special character with underscore.
-		}
-	}
-
-	result := b.String()
-	if result == "" {
-		return "_EMPTY_KEY"
-	}
-	return result
-}
-
-// shellQuote wraps a value in single quotes for safe use in shell export
-// statements. Single quotes in the value itself are escaped using the
-// standard POSIX shell trick: end the quoted string, add an escaped
-// single quote, then start a new quoted string.
-//
-// Example: it's → 'it'\”s'
-func shellQuote(value string) string {
-	escaped := strings.ReplaceAll(value, "'", "'\\''")
-	return "'" + escaped + "'"
-}
-
-// shellEscape strips shell metacharacters from identifiers like provider slugs.
-// Only alphanumeric characters, hyphens, underscores, and dots are kept.
-func shellEscape(s string) string {
-	var b strings.Builder
-	for _, ch := range s {
-		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-			(ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.' {
-			b.WriteRune(ch)
-		}
-	}
-	return b.String()
 }

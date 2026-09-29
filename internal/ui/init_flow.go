@@ -23,6 +23,7 @@ import (
 	"github.com/s1ks1/bwenv/v3/internal/config"
 	"github.com/s1ks1/bwenv/v3/internal/envrc"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 // RunInitFlow executes the full interactive initialization process:
@@ -276,7 +277,7 @@ func RunInitFlow(version string) error {
 	}
 
 	// 9b: Install the bwenv shell wrapper function.
-	wrapperModified, wrapperRC, wrapperErr := envrc.InstallShellWrapper()
+	wrapperModified, wrapperRC, wrapperErr := shell.InstallWrapper()
 	if wrapperErr != nil {
 		PrintInfo("Could not install shell wrapper: " + wrapperErr.Error())
 	} else if wrapperModified {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 // E returns the emoji string if ShowEmoji is enabled in the user config,
@@ -207,19 +208,8 @@ func FormatProviderTag(slug string) string {
 
 // ShortenHomePath replaces the user's home directory prefix with "~"
 // for more compact and readable display in status messages.
-// This is the single shared implementation — use this instead of local copies.
 func ShortenHomePath(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if strings.HasPrefix(path, home) {
-		return "~" + path[len(home):]
-	}
-	return path
+	return shell.ShortenHomePath(path)
 }
 
 // OnOff returns a styled "ON" or "OFF" string for boolean config values.

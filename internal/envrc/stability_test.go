@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/s1ks1/bwenv/v3/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -135,7 +136,7 @@ func TestShellQuoteSurvivesRealShells(t *testing.T) {
 	for _, sh := range shells {
 		for i, value := range values {
 			t.Run(fmt.Sprintf("%s/value_%d", sh.name, i), func(t *testing.T) {
-				script := sh.prefix + shellQuote(value) + `; printf '%s' "$BWENV_TEST_VAR"`
+				script := sh.prefix + shell.Quote(value) + `; printf '%s' "$BWENV_TEST_VAR"`
 				out, errOut, err := stabilityRunShell(t, sh.path, script)
 				if err != nil {
 					t.Fatalf("shell %s rejected quoted value %q: %v (stderr: %s)", sh.name, value, err, errOut)
@@ -170,18 +171,18 @@ func TestSanitizeKeyIsShellSafeAndIdempotent(t *testing.T) {
 	shPath, shErr := exec.LookPath("sh")
 	for _, key := range keys {
 		t.Run(fmt.Sprintf("key_%q", key), func(t *testing.T) {
-			got := sanitizeKey(key)
+			got := shell.SanitizeKey(key)
 			if !validIdent.MatchString(got) {
-				t.Fatalf("sanitizeKey(%q) = %q is not a valid POSIX identifier", key, got)
+				t.Fatalf("shell.SanitizeKey(%q) = %q is not a valid POSIX identifier", key, got)
 			}
-			if again := sanitizeKey(got); again != got {
-				t.Fatalf("sanitizeKey not idempotent: sanitizeKey(%q) = %q", got, again)
+			if again := shell.SanitizeKey(got); again != got {
+				t.Fatalf("sanitizeKey not idempotent: shell.SanitizeKey(%q) = %q", got, again)
 			}
 			if shErr != nil {
 				t.Logf("sh unavailable; skipping shell eval for %q", key)
 				return
 			}
-			script := "export " + got + "=" + shellQuote("v") + `; printf '%s' "$` + got + `"`
+			script := "export " + got + "=" + shell.Quote("v") + `; printf '%s' "$` + got + `"`
 			out, errOut, err := stabilityRunShell(t, shPath, script)
 			if err != nil {
 				t.Fatalf("generated identifier %q not eval-safe: %v (stderr: %s)", got, err, errOut)
@@ -226,7 +227,7 @@ func TestFastExportOutputIsEvalSafe(t *testing.T) {
 	sanitized := make([]string, 0, len(cases))
 	for _, c := range cases {
 		secrets = append(secrets, provider.Secret{Key: c.key, Value: c.value})
-		sanitized = append(sanitized, sanitizeKey(c.key))
+		sanitized = append(sanitized, shell.SanitizeKey(c.key))
 	}
 	provider.Register(&mockProvider{name: "Mock", secrets: secrets})
 
@@ -308,7 +309,7 @@ func TestFastExportDuplicateKeysLastWins(t *testing.T) {
 				t.Fatalf("ExportWithFolderID() returned error: %v (stderr: %s)", err, stderr)
 			}
 
-			key := sanitizeKey(tc.secrets[0].Key)
+			key := shell.SanitizeKey(tc.secrets[0].Key)
 			lines := strings.Count(stdout, "export "+key+"=")
 			if lines != len(tc.secrets) {
 				t.Fatalf("expected %d export lines for duplicate key %q, got %d:\n%s", len(tc.secrets), key, lines, stdout)

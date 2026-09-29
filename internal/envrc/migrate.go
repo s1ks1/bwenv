@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 const migrationBackupPath = ".envrc.bwenv.bak"
@@ -120,7 +122,7 @@ func migratedEnvrc(original []byte) ([]byte, bool, error) {
 			}
 			sessionValue := strings.TrimPrefix(line, "export BW_SESSION=")
 			session, ok := unquoteShellValue(sessionValue)
-			if !ok || shellQuote(session) != sessionValue {
+			if !ok || shell.Quote(session) != sessionValue {
 				return nil, false, fmt.Errorf("legacy .envrc contains a non-literal BW_SESSION assignment; review it manually")
 			}
 			hasSession = true
