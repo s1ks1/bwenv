@@ -20,7 +20,7 @@ const wrapperBashZsh = `
 # Commands like allow/disallow/remove/login modify your shell environment directly.
 bwenv() {
   case "${1:-}" in
-    allow|disallow|deny|remove|clean|export|load|login|auth)
+    allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate)
       local _bwenv_out
       _bwenv_out="$(command bwenv "$@")"
       local _bwenv_rc=$?
@@ -39,7 +39,7 @@ const wrapperFish = `
 # bwenv shell integration — enables seamless secret management
 function bwenv
   switch $argv[1]
-    case allow disallow deny remove clean export load login auth
+    case allow disallow deny remove clean export load login auth activate deactivate
       set -l _out (command bwenv $argv)
       set -l _rc $status
       if test $_rc -eq 0 -a -n "$_out"

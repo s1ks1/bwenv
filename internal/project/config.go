@@ -71,8 +71,8 @@ func (cfg Config) Validate() error {
 	if strings.TrimSpace(cfg.Project.FolderName) == "" {
 		return fmt.Errorf("project.folder_name is required")
 	}
-	if cfg.Activation.Mode != "direnv" {
-		return fmt.Errorf("unsupported activation.mode %q (supported: direnv)", cfg.Activation.Mode)
+	if strings.TrimSpace(cfg.Activation.Mode) == "" {
+		return fmt.Errorf("activation.mode is required")
 	}
 	for _, itemID := range cfg.Project.Items {
 		if strings.TrimSpace(itemID) == "" {

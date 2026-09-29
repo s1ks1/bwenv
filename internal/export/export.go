@@ -48,6 +48,51 @@ func activatorFor() (activation.Activator, error) {
 	return activation.Get(mode)
 }
 
+// Activate prepares the nearest project's activation artifact and reports the
+// backend used. It works from any nested subdirectory and is idempotent:
+// activating an already-active project succeeds without duplicating state.
+func Activate() (backend string, err error) {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		return "", err
+	}
+	if root == "" {
+		return "", fmt.Errorf("no bwenv project found in this directory or any parent")
+	}
+	if err := os.Chdir(root); err != nil {
+		return "", fmt.Errorf("enter project %s: %w", root, err)
+	}
+
+	activator, err := activatorFor()
+	if err != nil {
+		return "", err
+	}
+	if !activator.Available() {
+		return "", fmt.Errorf("%s backend is not installed", activator.Name())
+	}
+	if err := activator.Approve(); err != nil {
+		return "", err
+	}
+	return activator.Name(), nil
+}
+
+// Deactivate revokes the nearest project's activation and prints "unset VAR"
+// statements so the caller's shell restores its previous environment. It is
+// idempotent: deactivating an inactive project clears nothing and succeeds.
+func Deactivate() ([]string, error) {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		return nil, err
+	}
+	if root == "" {
+		return nil, fmt.Errorf("no bwenv project found in this directory or any parent")
+	}
+	if err := os.Chdir(root); err != nil {
+		return nil, fmt.Errorf("enter project %s: %w", root, err)
+	}
+	return DisallowAndUnset()
+}
+
 // ── Styles for the export summary box (printed to stderr on every direnv load) ──
 
 var (
