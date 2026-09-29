@@ -15,8 +15,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
@@ -27,6 +28,24 @@ import (
 // create a circular dependency).
 func emojiStr(emoji string, fallback string) string {
 	return config.Emoji(emoji, fallback)
+}
+
+// activatorFor resolves the activation backend selected by the project's
+// activation.mode. A legacy project without .bwenv.toml defaults to direnv.
+// Core secret retrieval depends only on this interface, never on a concrete
+// backend.
+func activatorFor() (activation.Activator, error) {
+	mode := "direnv"
+	cfg, err := project.Load(".bwenv.toml")
+	switch {
+	case err == nil:
+		mode = cfg.Activation.Mode
+	case errors.Is(err, os.ErrNotExist):
+		// Legacy .envrc project — direnv is the stable default backend.
+	default:
+		return nil, err
+	}
+	return activation.Get(mode)
 }
 
 // ── Styles for the export summary box (printed to stderr on every direnv load) ──
@@ -85,11 +104,16 @@ var (
 //  5. Runs "direnv allow" LAST so the hook fires only after the shell
 //     already has all the right env vars.
 func AllowAndExport() (providerSlug string, folderName string, err error) {
-	// Step 1: Parse .envrc to get provider/folder info.
-	providerSlug, folderName, _, err = direnv.ParseConfig()
+	// Step 1: Resolve the project's activation backend and its secret source.
+	activator, err := activatorFor()
 	if err != nil {
-		return "", "", fmt.Errorf("could not parse .envrc: %w", err)
+		return "", "", err
 	}
+	source, err := activator.Resolve()
+	if err != nil {
+		return "", "", fmt.Errorf("could not resolve the project source: %w", err)
+	}
+	providerSlug, folderName = source.ProviderSlug, source.FolderName
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
@@ -111,12 +135,11 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 	fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
 	fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
 
-	// Step 5: Run direnv allow LAST. The shell now has fresh BW_SESSION
-	// and DIRENV_LOG_FORMAT, so when the hook fires the re-load is both
-	// silent and auth-free.
-	if allowErr := direnv.Allow(); allowErr != nil {
-		// Non-fatal — direnv may not be installed.
-		_ = allowErr
+	// Step 5: Approve the activation artifact LAST. The shell now has a fresh
+	// session, so the backend hook re-load is both silent and auth-free.
+	if approveErr := activator.Approve(); approveErr != nil {
+		// Non-fatal — the backend tooling may not be installed.
+		_ = approveErr
 	}
 
 	return providerSlug, folderName, nil
@@ -134,11 +157,16 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 // it's the recovery path when a session expires, while AllowAndExport is the
 // initial approval path. Having a distinct "login" command makes the UX clearer.
 func LoginAndExport() (providerSlug string, folderName string, err error) {
-	// Step 1: Parse .envrc to get provider/folder info.
-	providerSlug, folderName, _, err = direnv.ParseConfig()
+	// Step 1: Resolve the project's activation backend and its secret source.
+	activator, err := activatorFor()
 	if err != nil {
-		return "", "", fmt.Errorf("could not parse .envrc: %w", err)
+		return "", "", err
 	}
+	source, err := activator.Resolve()
+	if err != nil {
+		return "", "", fmt.Errorf("could not resolve the project source: %w", err)
+	}
+	providerSlug, folderName = source.ProviderSlug, source.FolderName
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
@@ -156,22 +184,26 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 	fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
 	fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
 
-	// Step 5: Run direnv allow LAST.
-	if allowErr := direnv.Allow(); allowErr != nil {
-		_ = allowErr // Non-fatal.
+	// Step 5: Approve the activation artifact LAST.
+	if approveErr := activator.Approve(); approveErr != nil {
+		_ = approveErr // Non-fatal.
 	}
 
 	return providerSlug, folderName, nil
 }
 
-// Refresh syncs providers that support it and asks direnv to reload the
-// current project's environment. Secret values are not written by this command.
+// Refresh syncs providers that support it and asks the activation backend to
+// reload the current project's environment. Secret values are not written.
 func Refresh() (providerName string, synced bool, err error) {
-	providerSlug, _, _, _, err := direnv.ParseConfigWithFolderID()
+	activator, err := activatorFor()
+	if err != nil {
+		return "", false, err
+	}
+	source, err := activator.Resolve()
 	if err != nil {
 		return "", false, fmt.Errorf("could not read project configuration: %w", err)
 	}
-	p, err := provider.Get(providerSlug)
+	p, err := provider.Get(source.ProviderSlug)
 	if err != nil {
 		return "", false, fmt.Errorf("could not determine the configured provider")
 	}
@@ -187,7 +219,7 @@ func Refresh() (providerName string, synced bool, err error) {
 		}
 		synced = true
 	}
-	if err := direnv.Reload(); err != nil {
+	if err := activator.Reload(); err != nil {
 		return p.Name(), synced, err
 	}
 	return p.Name(), synced, nil
@@ -201,7 +233,11 @@ func Refresh() (providerName string, synced bool, err error) {
 func DisallowAndUnset() ([]string, error) {
 	varNames := loadCachedVarNames()
 
-	if err := direnv.Disallow(); err != nil {
+	activator, err := activatorFor()
+	if err != nil {
+		return varNames, err
+	}
+	if err := activator.Unapprove(); err != nil {
 		return varNames, err
 	}
 
@@ -505,9 +541,11 @@ func Remove() (bool, []string, error) {
 	// Capture variable names before we delete the file.
 	varNames := loadCachedVarNames()
 
-	// Deny direnv so the cached allowance is revoked. Non-fatal: direnv may
-	// not be installed when just cleaning up.
-	_ = direnv.Disallow()
+	// Revoke the activation backend's approval. Non-fatal: the backend tooling
+	// may not be installed when just cleaning up.
+	if activator, aerr := activatorFor(); aerr == nil {
+		_ = activator.Unapprove()
+	}
 
 	if err := os.Remove(".envrc"); err != nil {
 		return false, varNames, fmt.Errorf("failed to remove .envrc: %w", err)
