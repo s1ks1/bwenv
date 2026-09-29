@@ -20,8 +20,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/config"
-	"github.com/s1ks1/bwenv/v3/internal/envrc"
+	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
@@ -198,9 +199,9 @@ func RunInitFlow(version string) error {
 
 	var varNames []string
 	if len(itemIDs) > 0 {
-		varNames, err = envrc.PreviewSecretsByIDs(chosenProvider, session, *chosenFolder, itemIDs)
+		varNames, err = export.PreviewSecretsByIDs(chosenProvider, session, *chosenFolder, itemIDs)
 	} else {
-		varNames, err = envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
+		varNames, err = export.PreviewSecrets(chosenProvider, session, *chosenFolder)
 	}
 	if err != nil {
 		PrintWarning(fmt.Sprintf("Could not preview secrets: %v", err))
@@ -229,7 +230,7 @@ func RunInitFlow(version string) error {
 		PrintWarning("Existing .envrc will be overwritten")
 	}
 
-	err = envrc.Generate(envrc.Config{
+	err = direnv.Generate(direnv.Config{
 		ProviderSlug: chosenProvider.Slug(),
 		FolderName:   chosenFolder.Name,
 		FolderID:     chosenFolder.ID,
@@ -248,7 +249,7 @@ func RunInitFlow(version string) error {
 	// Now that DIRENV_LOG_FORMAT="" is set globally (step 9 below) or was
 	// already set from a previous init, we can safely allow the .envrc.
 	// When the user's prompt returns, direnv's hook will silently load it.
-	if err := envrc.AllowDirenv(); err != nil {
+	if err := direnv.Allow(); err != nil {
 		// Non-fatal — direnv might not be installed.
 		_ = err
 	}
@@ -264,7 +265,7 @@ func RunInitFlow(version string) error {
 
 	// 9a: Silence direnv globally (unless user wants direnv output).
 	if !userCfg.ShowDirenvOutput {
-		silenceModified, silenceRC, silenceErr := envrc.SilenceDirenvGlobally()
+		silenceModified, silenceRC, silenceErr := direnv.SilenceGlobally()
 		if silenceErr != nil {
 			PrintInfo("Could not configure global direnv silence: " + silenceErr.Error())
 		} else if silenceModified {

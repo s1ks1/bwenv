@@ -1,4 +1,4 @@
-package envrc
+package export
 
 // PER-9 regression: automated coverage for user-facing handling of the
 // provider-failure scenario on the fast export path. Additive-only test file;
@@ -49,7 +49,7 @@ func TestFastExportProviderFailureIsActionableAndSafe(t *testing.T) {
 		t.Fatal("expected ExportWithFolderID to fail when the provider is unavailable")
 	}
 
-	// envrc.go wraps the provider error as
+	// export.go wraps the provider error as
 	//   "failed to get secrets from folder %q: %w"
 	// The bitwarden provider (PER-26) replaces raw CLI stderr with a generic,
 	// actionable message, so assert on that contract rather than on the CLI's

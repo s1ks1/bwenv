@@ -1,4 +1,4 @@
-package envrc
+package direnv
 
 import (
 	"os"
@@ -34,9 +34,9 @@ func setupLegacyProject(t *testing.T, content string) {
 
 func TestMigrateProjectDryRunMakesNoChanges(t *testing.T) {
 	setupLegacyProject(t, legacyEnvrc)
-	result, err := MigrateProject(true)
+	result, err := Migrate(true)
 	if err != nil {
-		t.Fatalf("MigrateProject(true) returned error: %v", err)
+		t.Fatalf("Migrate(true) returned error: %v", err)
 	}
 	if !strings.Contains(result, "No files changed") || strings.Contains(result, "migration-session-secret") {
 		t.Fatalf("unexpected or sensitive dry-run output: %q", result)
@@ -58,9 +58,9 @@ func TestMigrateProjectDryRunMakesNoChanges(t *testing.T) {
 
 func TestMigrateProjectPreservesBehaviorAndBackup(t *testing.T) {
 	setupLegacyProject(t, legacyEnvrc)
-	result, err := MigrateProject(false)
+	result, err := Migrate(false)
 	if err != nil {
-		t.Fatalf("MigrateProject(false) returned error: %v", err)
+		t.Fatalf("Migrate(false) returned error: %v", err)
 	}
 	if strings.Contains(result, "migration-session-secret") {
 		t.Fatal("migration output exposed the session token")
@@ -135,7 +135,7 @@ func TestUnquoteShellValue(t *testing.T) {
 func TestMigrateProjectRejectsCustomShellCodeWithoutChanges(t *testing.T) {
 	original := legacyEnvrc + "export CUSTOM_VALUE=keep-me\n"
 	setupLegacyProject(t, original)
-	if _, err := MigrateProject(false); err == nil {
+	if _, err := Migrate(false); err == nil {
 		t.Fatal("expected custom shell code to require manual migration")
 	}
 	content, err := os.ReadFile(".envrc")

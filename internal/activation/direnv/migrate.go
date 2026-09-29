@@ -1,4 +1,4 @@
-package envrc
+package direnv
 
 import (
 	"errors"
@@ -12,13 +12,8 @@ import (
 
 const migrationBackupPath = ".envrc.bwenv.bak"
 
-const (
-	generatedDirenvLogFormat = `export DIRENV_LOG_FORMAT=$'\033[2m  \U0001f510 %s\033[0m'`
-	generatedDirenvTimeout   = `export DIRENV_WARN_TIMEOUT="10m"`
-)
-
-// MigrateProject converts a generated legacy .envrc to canonical project metadata.
-func MigrateProject(dryRun bool) (string, error) {
+// Migrate converts a generated legacy .envrc to canonical project metadata.
+func Migrate(dryRun bool) (string, error) {
 	if _, err := os.Lstat(".bwenv.toml"); err == nil {
 		return "", fmt.Errorf(".bwenv.toml already exists; this project does not need migration")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -29,7 +24,7 @@ func MigrateProject(dryRun bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read legacy .envrc: %w", err)
 	}
-	providerSlug, folderName, folderID, itemIDs, err := ParseEnvrcConfigWithFolderID()
+	providerSlug, folderName, folderID, itemIDs, err := ParseConfigWithFolderID()
 	if err != nil {
 		return "", fmt.Errorf("could not read legacy bwenv settings: %w", err)
 	}

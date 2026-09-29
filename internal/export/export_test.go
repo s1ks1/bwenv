@@ -1,4 +1,4 @@
-package envrc
+package export
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
@@ -22,7 +23,7 @@ func TestGenerateWithoutItems(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := Generate(Config{
+	err := direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test Folder",
 		FolderID:     "folder-id-123",
@@ -30,7 +31,7 @@ func TestGenerateWithoutItems(t *testing.T) {
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+		t.Fatalf("direnv.Generate() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -81,7 +82,7 @@ func TestGenerateWithItems(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := Generate(Config{
+	err := direnv.Generate(direnv.Config{
 		ProviderSlug: "1password",
 		FolderName:   "Dev",
 		FolderID:     "vault-id",
@@ -90,7 +91,7 @@ func TestGenerateWithItems(t *testing.T) {
 		ItemNames:    []string{"API Keys", "Database"},
 	})
 	if err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+		t.Fatalf("direnv.Generate() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -122,14 +123,14 @@ func TestGenerateWithoutSession(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := Generate(Config{
+	err := direnv.Generate(direnv.Config{
 		ProviderSlug: "1password",
 		FolderName:   "Production",
 		FolderID:     "vault-id",
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+		t.Fatalf("direnv.Generate() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -151,13 +152,13 @@ func TestGenerateWithoutFolderIDKeepsLegacyExport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Generate(Config{
+	if err := direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Legacy",
 		Session:      "session-token",
 		Version:      testVersion,
 	}); err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+		t.Fatalf("direnv.Generate() returned error: %v", err)
 	}
 
 	content, err := os.ReadFile(".envrc")
@@ -172,9 +173,9 @@ func TestGenerateWithoutFolderIDKeepsLegacyExport(t *testing.T) {
 		t.Fatalf("legacy config without a folder ID should not create .bwenv.toml, stat error: %v", err)
 	}
 
-	_, folder, folderID, _, err := ParseEnvrcConfigWithFolderID()
+	_, folder, folderID, _, err := direnv.ParseConfigWithFolderID()
 	if err != nil {
-		t.Fatalf("ParseEnvrcConfigWithFolderID() returned error: %v", err)
+		t.Fatalf("direnv.ParseConfigWithFolderID() returned error: %v", err)
 	}
 	if folder != "Legacy" || folderID != "" {
 		t.Fatalf("expected legacy folder without ID, got folder=%q id=%q", folder, folderID)
@@ -187,14 +188,14 @@ func TestGenerateFilePermissions(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := Generate(Config{
+	err := direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+		t.Fatalf("direnv.Generate() returned error: %v", err)
 	}
 
 	info, err := os.Stat(".envrc")
@@ -220,7 +221,7 @@ func TestParseEnvrcConfig(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := Generate(Config{
+	err := direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "My Secrets",
 		FolderID:     "folder-id",
@@ -230,12 +231,12 @@ func TestParseEnvrcConfig(t *testing.T) {
 		ItemNames:    []string{"Item A", "Item B"},
 	})
 	if err != nil {
-		t.Fatalf("Generate() failed: %v", err)
+		t.Fatalf("direnv.Generate() failed: %v", err)
 	}
 
-	provider, folder, folderID, itemIDs, err := ParseEnvrcConfigWithFolderID()
+	provider, folder, folderID, itemIDs, err := direnv.ParseConfigWithFolderID()
 	if err != nil {
-		t.Fatalf("ParseEnvrcConfig() returned error: %v", err)
+		t.Fatalf("direnv.ParseConfig() returned error: %v", err)
 	}
 
 	if provider != "bitwarden" {
@@ -269,9 +270,9 @@ func TestParseEnvrcConfigFlagsWithoutHeader(t *testing.T) {
 	if err := os.WriteFile(".envrc", []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
-	providerSlug, folderName, folderID, itemIDs, err := ParseEnvrcConfigWithFolderID()
+	providerSlug, folderName, folderID, itemIDs, err := direnv.ParseConfigWithFolderID()
 	if err != nil {
-		t.Fatalf("ParseEnvrcConfigWithFolderID() returned error: %v", err)
+		t.Fatalf("direnv.ParseConfigWithFolderID() returned error: %v", err)
 	}
 	if providerSlug != "bitwarden" || folderName != "Production" || folderID != "folder-123" {
 		t.Fatalf("parsed provider/folder = %q/%q (%q), want bitwarden/Production (folder-123)", providerSlug, folderName, folderID)
@@ -287,7 +288,7 @@ func TestParseEnvrcConfigWithoutItems(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := Generate(Config{
+	err := direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
@@ -295,12 +296,12 @@ func TestParseEnvrcConfigWithoutItems(t *testing.T) {
 		Version:      testVersion,
 	})
 	if err != nil {
-		t.Fatalf("Generate() failed: %v", err)
+		t.Fatalf("direnv.Generate() failed: %v", err)
 	}
 
-	_, _, itemIDs, err := ParseEnvrcConfig()
+	_, _, itemIDs, err := direnv.ParseConfig()
 	if err != nil {
-		t.Fatalf("ParseEnvrcConfig() returned error: %v", err)
+		t.Fatalf("direnv.ParseConfig() returned error: %v", err)
 	}
 
 	if itemIDs != nil {
@@ -314,7 +315,7 @@ func TestParseEnvrcConfigNoFile(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	_, _, _, err := ParseEnvrcConfig()
+	_, _, _, err := direnv.ParseConfig()
 	if err == nil {
 		t.Fatal("expected error when no .envrc exists")
 	}
@@ -332,7 +333,7 @@ func TestParseEnvrcConfigNotBwenv(t *testing.T) {
 
 	os.WriteFile(".envrc", []byte("export FOO=bar\n"), 0600)
 
-	_, _, _, err := ParseEnvrcConfig()
+	_, _, _, err := direnv.ParseConfig()
 	if err == nil {
 		t.Fatal("expected error for non-bwenv .envrc")
 	}
@@ -355,7 +356,7 @@ func TestParseEnvrcConfigRejectsInvalidCanonicalConfig(t *testing.T) {
 	if err := os.WriteFile(".envrc", []byte("# Generated by bwenv\n# Provider: bitwarden | Folder: Legacy\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := ParseEnvrcConfigWithFolderID(); err == nil {
+	if _, _, _, _, err := direnv.ParseConfigWithFolderID(); err == nil {
 		t.Fatal("expected invalid canonical metadata to fail rather than fall back")
 	}
 }
@@ -484,7 +485,7 @@ func TestUpdateSession(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	Generate(Config{
+	direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
@@ -492,9 +493,9 @@ func TestUpdateSession(t *testing.T) {
 		Version:      testVersion,
 	})
 
-	err := UpdateSession("new-token")
+	err := direnv.UpdateSession("new-token")
 	if err != nil {
-		t.Fatalf("UpdateSession() returned error: %v", err)
+		t.Fatalf("direnv.UpdateSession() returned error: %v", err)
 	}
 
 	content, _ := os.ReadFile(".envrc")
@@ -513,7 +514,7 @@ func TestUpdateSessionEmptyDoesNothing(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	Generate(Config{
+	direnv.Generate(direnv.Config{
 		ProviderSlug: "bitwarden",
 		FolderName:   "Test",
 		FolderID:     "id",
@@ -521,9 +522,9 @@ func TestUpdateSessionEmptyDoesNothing(t *testing.T) {
 		Version:      testVersion,
 	})
 
-	err := UpdateSession("")
+	err := direnv.UpdateSession("")
 	if err != nil {
-		t.Fatalf("UpdateSession() with empty string returned error: %v", err)
+		t.Fatalf("direnv.UpdateSession() with empty string returned error: %v", err)
 	}
 }
 
@@ -533,7 +534,7 @@ func TestUpdateSessionNoFile(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origWd)
 
-	err := UpdateSession("new-token")
+	err := direnv.UpdateSession("new-token")
 	if err == nil {
 		t.Fatal("expected error when no .envrc exists")
 	}

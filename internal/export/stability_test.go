@@ -1,4 +1,4 @@
-package envrc
+package export
 
 // PER-12 stabilization: focused regression tests for the fast export path.
 //
@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
@@ -347,19 +348,19 @@ func TestFastExportCanonicalFolderRoundTrip(t *testing.T) {
 	for i, name := range names {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
-			if err := Generate(Config{
+			if err := direnv.Generate(direnv.Config{
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				FolderID:     "folder-id-123",
 				Session:      "tok",
 				Version:      testVersion,
 			}); err != nil {
-				t.Fatalf("Generate() with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.Generate() with folder %q returned error: %v", name, err)
 			}
 
-			_, folder, folderID, _, err := ParseEnvrcConfigWithFolderID()
+			_, folder, folderID, _, err := direnv.ParseConfigWithFolderID()
 			if err != nil {
-				t.Fatalf("ParseEnvrcConfigWithFolderID() with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.ParseConfigWithFolderID() with folder %q returned error: %v", name, err)
 			}
 			if folder != name {
 				t.Errorf("canonical roundtrip: got folder %q, want %q", folder, name)
@@ -392,20 +393,20 @@ func TestFastExportLegacyFolderRoundTrip(t *testing.T) {
 	for i, name := range names {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
-			if err := Generate(Config{
+			if err := direnv.Generate(direnv.Config{
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				Version:      testVersion,
 			}); err != nil {
-				t.Fatalf("Generate() legacy with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.Generate() legacy with folder %q returned error: %v", name, err)
 			}
 
-			_, folder, _, err := ParseEnvrcConfig()
+			_, folder, _, err := direnv.ParseConfig()
 			if err != nil {
-				t.Fatalf("ParseEnvrcConfig() legacy with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.ParseConfig() legacy with folder %q returned error: %v", name, err)
 			}
 			if folder != name {
-				t.Skipf("BUG: legacy .envrc folder roundtrip lost data: %q -> %q (header is split on '|' at envrc.go ParseEnvrcConfigWithFolderID)", name, folder)
+				t.Skipf("BUG: legacy .envrc folder roundtrip lost data: %q -> %q (header is split on '|' at direnv.go ParseConfigWithFolderID)", name, folder)
 			}
 		})
 	}

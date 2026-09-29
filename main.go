@@ -10,9 +10,11 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
-	"github.com/s1ks1/bwenv/v3/internal/envrc"
+	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/project"
+	"github.com/s1ks1/bwenv/v3/internal/session"
 	"github.com/s1ks1/bwenv/v3/internal/ui"
 )
 
@@ -143,7 +145,7 @@ func runBenchmark(args []string) {
 	providerSlug, folder, folderID, itemIDs := parseExportFlags(args)
 	if providerSlug == "" && folder == "" {
 		var err error
-		providerSlug, folder, folderID, itemIDs, err = envrc.ParseEnvrcConfigWithFolderID()
+		providerSlug, folder, folderID, itemIDs, err = direnv.ParseConfigWithFolderID()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
 			os.Exit(1)
@@ -219,7 +221,7 @@ func runExport(args []string) {
 		os.Exit(1)
 	}
 
-	if err := envrc.ExportWithFolderID(provider, folder, folderID, itemIDs); err != nil {
+	if err := export.ExportWithFolderID(provider, folder, folderID, itemIDs); err != nil {
 		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
 		os.Exit(1)
 	}
@@ -255,15 +257,15 @@ func runAllow() {
 		// Before approving, re-authenticate and update .envrc with a fresh
 		// session token. Otherwise direnv re-fires with the stale BW_SESSION
 		// from .envrc and "bwenv export" fails with "session expired".
-		prov, folder, _, _ := envrc.ParseEnvrcConfig()
+		prov, folder, _, _ := direnv.ParseConfig()
 		if prov != "" && folder != "" {
-			session, err := envrc.ReauthenticateProvider(prov)
+			session, err := session.Reauthenticate(prov)
 			if err != nil {
 				// Non-fatal — if re-auth fails (e.g. 1Password, no session needed),
 				// we still approve .envrc and let direnv handle it.
 				_ = err
 			} else if session != "" {
-				if updateErr := envrc.UpdateSession(session); updateErr != nil {
+				if updateErr := direnv.UpdateSession(session); updateErr != nil {
 					fmt.Fprintf(os.Stderr, "  %s %s\n",
 						ui.E("⚠️", "[!]"),
 						lipgloss.NewStyle().Foreground(ui.ColorWarning).Render(
@@ -272,7 +274,7 @@ func runAllow() {
 			}
 		}
 
-		if err := envrc.AllowDirenv(); err != nil {
+		if err := direnv.Allow(); err != nil {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
 		}
@@ -292,7 +294,7 @@ func runAllow() {
 				"Tip: restart your shell to enable the bwenv wrapper, then this works automatically."))
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — approve + export.
-		_, _, err := envrc.AllowAndExport()
+		_, _, err := export.AllowAndExport()
 		if err != nil {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
@@ -305,7 +307,7 @@ func runAllow() {
 // bwenv shell wrapper, the unsets are eval'd automatically so
 // variables are cleared from the current shell.
 func runDisallow() {
-	varNames, err := envrc.DisallowAndUnset()
+	varNames, err := export.DisallowAndUnset()
 	if err != nil {
 		ui.PrintError("Disallow failed", err)
 		os.Exit(1)
@@ -404,7 +406,7 @@ func runExamples() {
 // to stdout. When called through the bwenv shell wrapper, the unsets are
 // eval'd automatically so variables are cleared from the current shell.
 func runRemove() {
-	removed, varNames, err := envrc.RemoveAndUnset()
+	removed, varNames, err := export.RemoveAndUnset()
 	if err != nil {
 		ui.PrintError("Remove failed", err)
 		os.Exit(1)
@@ -460,7 +462,7 @@ func runLogin() {
 		}
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — authenticate + export.
-		_, _, err := envrc.LoginAndExport()
+		_, _, err := export.LoginAndExport()
 		if err != nil {
 			ui.PrintError("Login failed", err)
 			os.Exit(1)
@@ -469,7 +471,7 @@ func runLogin() {
 }
 
 func runRefresh() {
-	providerName, synced, err := envrc.Refresh()
+	providerName, synced, err := export.Refresh()
 	if err != nil {
 		ui.PrintError("Refresh failed", err)
 		os.Exit(1)
@@ -503,7 +505,7 @@ func runMigrate(args []string) {
 			dryRun = true
 		}
 	}
-	result, err := envrc.MigrateProject(dryRun)
+	result, err := direnv.Migrate(dryRun)
 	if err != nil {
 		ui.PrintError("Migration failed", err)
 		os.Exit(1)

@@ -12,7 +12,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v3/internal/envrc"
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
@@ -30,7 +31,7 @@ func RunLoginFlow(version string) error {
 	fmt.Println()
 
 	// Step 1: Parse .envrc to find out which provider and folder are configured.
-	providerSlug, folderName, _, err := envrc.ParseEnvrcConfig()
+	providerSlug, folderName, _, err := direnv.ParseConfig()
 	if err != nil {
 		PrintBoxError(
 			E("❌", "[ERROR]")+" No bwenv configuration found",
@@ -95,7 +96,7 @@ func RunLoginFlow(version string) error {
 	// Without this, direnv would re-fire with the stale BW_SESSION from .envrc
 	// and "bwenv export" would fail with "session expired".
 	if session != "" {
-		if updateErr := envrc.UpdateSession(session); updateErr != nil {
+		if updateErr := direnv.UpdateSession(session); updateErr != nil {
 			PrintWarning(fmt.Sprintf("Could not update .envrc with new session: %v", updateErr))
 		} else {
 			PrintSuccess("Updated session token in .envrc")
@@ -127,7 +128,7 @@ func RunLoginFlow(version string) error {
 	}
 
 	// Preview secrets to confirm they're accessible.
-	varNames, err := envrc.PreviewSecrets(p, session, *targetFolder)
+	varNames, err := export.PreviewSecrets(p, session, *targetFolder)
 	if err != nil {
 		PrintWarning(fmt.Sprintf("Could not verify secrets: %v", err))
 	} else {
@@ -138,7 +139,7 @@ func RunLoginFlow(version string) error {
 
 	// Allow direnv so next cd into the directory loads secrets automatically.
 	// This must happen AFTER updating .envrc so direnv picks up the new token.
-	if allowErr := envrc.AllowDirenv(); allowErr != nil {
+	if allowErr := direnv.Allow(); allowErr != nil {
 		_ = allowErr // Non-fatal — direnv may not be installed.
 	}
 
