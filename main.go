@@ -71,7 +71,8 @@ func main() {
 	case "init":
 		// Full interactive TUI flow: pick provider → unlock vault → pick folder → generate .envrc
 		// Note: init flow automatically runs allow at the end (best UX).
-		runInit()
+		// Use --activation <direnv|shell|mise> to choose the backend (default direnv).
+		runInit(args)
 
 	case "export", "load":
 		// Non-interactive export for use inside .envrc files.
@@ -200,9 +201,21 @@ func runVersion() {
 	fmt.Printf("  %s\n\n", mutedStyle.Render("Run 'bwenv examples' for usage examples"))
 }
 
-// runInit launches the full interactive TUI for setting up secrets.
-func runInit() {
-	if err := ui.RunInitFlow(Version); err != nil {
+// runInit launches the full interactive TUI for setting up secrets. The
+// activation backend is chosen with --activation (default: direnv).
+func runInit(args []string) {
+	mode := "direnv"
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--activation" && i+1 < len(args):
+			i++
+			mode = args[i]
+		case strings.HasPrefix(args[i], "--activation="):
+			mode = strings.TrimPrefix(args[i], "--activation=")
+		}
+	}
+
+	if err := ui.RunInitFlow(Version, mode); err != nil {
 		ui.PrintError("Init failed", err)
 		os.Exit(1)
 	}
@@ -675,6 +688,10 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Help:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("examples   "), descStyle.Render(ui.E("📚", "->")+` Show detailed usage examples`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("version    "), descStyle.Render(ui.E("📋", "->")+` Show version`))
+	fmt.Println()
+
+	fmt.Printf("  %s\n\n", headerStyle.Render("Init flags:"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--activation"), descStyle.Render("Backend: direnv (default), shell, mise (experimental)"))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Export flags:"))

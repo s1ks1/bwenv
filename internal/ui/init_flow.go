@@ -28,7 +28,9 @@ import (
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
-// RunInitFlow executes the full interactive initialization process:
+// RunInitFlow executes the full interactive initialization process for the
+// given activation backend. direnv is the default; shell and mise are
+// experimental.
 //  1. Display a welcome banner with version info.
 //  2. Let the user pick a secret provider (Bitwarden, 1Password, etc.).
 //  3. Authenticate with the chosen provider (unlock vault / sign in).
@@ -39,7 +41,7 @@ import (
 //  8. Automatically run "direnv allow" to approve the .envrc.
 //
 // Returns an error if any step fails or if the user cancels.
-func RunInitFlow(version string) error {
+func RunInitFlow(version string, activationMode string) error {
 	const totalSteps = 7
 
 	PrintBanner(version)
@@ -231,7 +233,7 @@ func RunInitFlow(version string) error {
 		PrintWarning("Existing .envrc will be overwritten")
 	}
 
-	activator, err := activation.Get("direnv")
+	activator, err := activation.Get(activationMode)
 	if err != nil {
 		return fmt.Errorf("activation backend unavailable: %w", err)
 	}
@@ -267,8 +269,9 @@ func RunInitFlow(version string) error {
 	rcFile := ""
 	rcModified := false
 
-	// 9a: Silence direnv globally (unless user wants direnv output).
-	if !userCfg.ShowDirenvOutput {
+	// 9a: Silence direnv globally (unless user wants direnv output). This is
+	// direnv-specific; other backends have no equivalent noise.
+	if activationMode == "direnv" && !userCfg.ShowDirenvOutput {
 		silenceModified, silenceRC, silenceErr := direnv.SilenceGlobally()
 		if silenceErr != nil {
 			PrintInfo("Could not configure global direnv silence: " + silenceErr.Error())
@@ -277,7 +280,7 @@ func RunInitFlow(version string) error {
 			rcFile = silenceRC
 			rcModified = true
 		}
-	} else {
+	} else if activationMode == "direnv" {
 		PrintInfo("Direnv output is visible (configured via 'bwenv config')")
 	}
 
