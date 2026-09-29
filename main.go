@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	"github.com/s1ks1/bwenv/v3/internal/activation/shell"
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
 	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/project"
@@ -119,6 +120,14 @@ func main() {
 	case "deactivate":
 		// Revoke the project's activation and clear its variables.
 		runDeactivate()
+
+	case "hook":
+		// Print the native shell hook for the requested shell (experimental).
+		runHook(args)
+
+	case "root":
+		// Print the nearest project root (used by the shell hook).
+		runRoot()
 
 	case "logout", "lock":
 		// Lock all provider vaults and terminate sessions.
@@ -517,6 +526,41 @@ func runDeactivate() {
 	}
 }
 
+// runRoot prints the nearest bwenv project root, or nothing when the current
+// directory is not inside a project. The native shell hook uses it to decide
+// when to activate and deactivate.
+func runRoot() {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		os.Exit(1)
+	}
+	if root != "" {
+		fmt.Println(root)
+	}
+}
+
+// runHook prints the native shell hook for the requested shell (or the shell in
+// $SHELL when omitted or "auto").
+func runHook(args []string) {
+	name := ""
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			name = arg
+			break
+		}
+	}
+	if name == "" || name == "auto" {
+		name = shell.DetectShell(os.Getenv("SHELL"))
+	}
+
+	snippet, err := shell.Hook(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Print(snippet)
+}
+
 // runStatus displays a comprehensive overview of the current bwenv state,
 // including diagnostics. This is the merged status + test command.
 func runStatus() {
@@ -608,6 +652,7 @@ func printUsage() {
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("export     "), descStyle.Render(ui.E("📤", "->")+` Output env vars for .envrc (non-interactive)`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("activate   "), descStyle.Render(ui.E("⚡", "->")+` Make the project's activation artifact ready`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("deactivate "), descStyle.Render(ui.E("⛔", "->")+` Revoke activation and clear variables`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("hook       "), descStyle.Render(ui.E("🪝", "->")+` Print a native shell hook (experimental; zsh, bash, fish)`))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Secret Management:"))

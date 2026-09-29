@@ -67,6 +67,19 @@ func Activate() (backend string, err error) {
 	if err != nil {
 		return "", err
 	}
+
+	// Backends that activate by emitting exports load the secrets now.
+	if emitter, ok := activator.(activation.Emitter); ok && emitter.EmitsExports() {
+		source, err := activator.Resolve()
+		if err != nil {
+			return "", err
+		}
+		if err := ExportWithFolderID(source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs); err != nil {
+			return "", err
+		}
+		return activator.Name(), nil
+	}
+
 	if !activator.Available() {
 		return "", fmt.Errorf("%s backend is not installed", activator.Name())
 	}

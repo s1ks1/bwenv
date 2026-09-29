@@ -73,6 +73,13 @@ type Activator interface {
 	Reload() error
 }
 
+// Emitter is implemented by backends that activate by printing shell export
+// statements for the current shell (native shell hooks), instead of delegating
+// to an external tool such as direnv.
+type Emitter interface {
+	EmitsExports() bool
+}
+
 // registry holds every registered backend, keyed by its mode name.
 var registry = map[string]Activator{}
 
