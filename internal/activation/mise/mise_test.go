@@ -2,6 +2,7 @@ package mise
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestActivatorBasics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error: %v", err)
 	}
-	if !strings.Contains(string(content), "bwenv export --project .") {
+	if !strings.Contains(string(content), "bwenv export --quiet --project") {
 		t.Fatalf("Render() must delegate to bwenv:\n%s", content)
 	}
 
@@ -34,7 +35,7 @@ func TestInstallWritesDelegatingConfig(t *testing.T) {
 	chdir(t, dir)
 
 	a := &Activator{}
-	if err := a.Install(activation.Config{}); err != nil {
+	if err := a.Install(activation.Config{ProviderSlug: "bitwarden", FolderName: "Team", FolderID: "folder-1"}); err != nil {
 		t.Fatalf("Install() error: %v", err)
 	}
 
@@ -45,12 +46,12 @@ func TestInstallWritesDelegatingConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() must write %s: %v", configPath, err)
 	}
-	if !strings.Contains(string(data), "_.source") || !strings.Contains(string(data), scriptPath) {
+	if !strings.Contains(string(data), sourceDirective) {
 		t.Fatalf("%s does not source the script:\n%s", configPath, data)
 	}
 
 	// Idempotent: a second install keeps a single bwenv block.
-	if err := a.Install(activation.Config{}); err != nil {
+	if err := a.Install(activation.Config{ProviderSlug: "bitwarden", FolderName: "Team", FolderID: "folder-1"}); err != nil {
 		t.Fatalf("second Install() error: %v", err)
 	}
 	again, _ := os.ReadFile(configPath)
@@ -59,19 +60,28 @@ func TestInstallWritesDelegatingConfig(t *testing.T) {
 	}
 }
 
-func TestInstallRefusesToRewriteExistingMiseConfig(t *testing.T) {
-	dir := t.TempDir()
-	chdir(t, dir)
-
-	if err := os.WriteFile(configPath, []byte("[tools]\nnode = \"20\"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := (&Activator{}).Install(activation.Config{}); err == nil {
-		t.Fatal("expected Install() to refuse an existing mise.toml without the bwenv block")
-	}
-	if _, err := os.Stat(scriptPath); err != nil {
-		t.Fatalf("the sourced script should still be written: %v", err)
+func TestInstallPreservesExistingMiseConfig(t *testing.T) {
+	for _, content := range []string{"[tools]\nnode = \"20\"\n", "[env]\nEXISTING = \"value\"\n[tools]\nnode = \"20\"\n"} {
+		t.Run(content, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			a := &Activator{}
+			if err := a.Install(activation.Config{ProviderSlug: "bitwarden", FolderName: "Team"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := project.Load("."); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.Remove(); err != nil {
+				t.Fatal(err)
+			}
+			remaining, err := os.ReadFile(configPath)
+			if err != nil || !strings.Contains(string(remaining), "node = \"20\"") || strings.Contains(string(remaining), "_.source") {
+				t.Fatalf("remove did not preserve config: %s, %v", remaining, err)
+			}
+		})
 	}
 }
 
@@ -107,4 +117,62 @@ func chdir(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
+
+func TestReloadClearsCachedEnv(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", xdg)
+
+	cacheDir := filepath.Join(xdg, "bwenv", "mise")
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "proj.env"), []byte("API_KEY=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (&Activator{}).Reload(); err != nil {
+		t.Fatalf("Reload() error: %v", err)
+	}
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Fatalf("Reload() must clear the mise env cache, stat error: %v", err)
+	}
+}
+
+func TestRenderCachesAndHonoursTTL(t *testing.T) {
+	content, err := (&Activator{}).Render(activation.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+	if !strings.Contains(script, "bwenv export --quiet --project") {
+		t.Fatalf("Render() must delegate to bwenv:\n%s", script)
+	}
+	if !strings.Contains(script, "BWENV_MISE_TTL_MIN") || !strings.Contains(script, "-nt") {
+		t.Fatalf("Render() must cache and invalidate on config change:\n%s", script)
+	}
+}
+
+func TestInstallUpgradesLegacySourceAfterTools(t *testing.T) {
+	t.Chdir(t.TempDir())
+	legacy := "[tools]\nnode = \"23\"\n[env]\nKEEP = \"value\"\n" + marker + "\n" + legacySourceDirective + "\n"
+	if err := os.WriteFile(configPath, []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a := &Activator{}
+	cfg := activation.Config{ProviderSlug: "bitwarden", FolderName: "Team"}
+	if err := a.Install(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil || !strings.Contains(string(data), sourceDirective) || !strings.Contains(string(data), "KEEP = \"value\"") {
+		t.Fatalf("legacy source not upgraded safely: %s, %v", data, err)
+	}
+	if err := a.Install(cfg); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := os.ReadFile(configPath)
+	if string(data) != string(again) {
+		t.Fatal("upgrade not idempotent")
+	}
 }
