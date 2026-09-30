@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -13,10 +15,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	_ "github.com/s1ks1/bwenv/v3/internal/activation/mise"
 	"github.com/s1ks1/bwenv/v3/internal/activation/shell"
 	"github.com/s1ks1/bwenv/v3/internal/benchmark"
 	"github.com/s1ks1/bwenv/v3/internal/export"
 	"github.com/s1ks1/bwenv/v3/internal/project"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 	"github.com/s1ks1/bwenv/v3/internal/ui"
 )
@@ -81,6 +85,9 @@ func main() {
 		// "load" is an alias for "export" for convenience.
 		// Usage: bwenv export --provider bitwarden --folder "MyFolder"
 		runExport(args)
+
+	case "login-hint":
+		ui.PrintWarning("Variables are not loaded · run bwenv login")
 
 	case "allow":
 		// Explicitly approve .envrc in the current directory.
@@ -211,21 +218,20 @@ func runVersion() {
 // runInit launches the full interactive TUI for setting up secrets. The
 // activation backend is chosen with --activation (default: direnv).
 func runInit(args []string) {
-	mode := "direnv"
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--activation" && i+1 < len(args):
-			i++
-			mode = args[i]
-		case strings.HasPrefix(args[i], "--activation="):
-			mode = strings.TrimPrefix(args[i], "--activation=")
-		}
+	flags := flag.NewFlagSet("init", flag.ContinueOnError)
+	mode := flags.String("activation", "", "shell (default), direnv, or mise (experimental)")
+	if err := flags.Parse(args[1:]); err != nil {
+		os.Exit(1)
 	}
-
-	if err := ui.RunInitFlow(Version, mode); err != nil {
+	if flags.NArg() != 0 {
+		ui.PrintError("Invalid arguments", fmt.Errorf("init accepts only --activation"))
+		os.Exit(1)
+	}
+	if err := ui.RunInitFlow(Version, *mode); err != nil && !errors.Is(err, ui.ErrCancelled) {
 		ui.PrintError("Init failed", err)
 		os.Exit(1)
 	}
+
 }
 
 // runExport outputs "export KEY=VALUE" lines to stdout.
@@ -234,11 +240,11 @@ func runInit(args []string) {
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder)"
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder --items 'id1,id2')"
 func runExport(args []string) {
-	provider, folder, folderID, itemIDs := parseExportFlags(args)
+	providerSlug, folder, folderID, itemIDs := parseExportFlags(args)
 	projectPath := parseProjectFlag(args)
 	if projectPath != "" {
-		if provider != "" || folder != "" || folderID != "" || len(itemIDs) > 0 {
-			ui.PrintError("Invalid flags", fmt.Errorf("--project cannot be combined with provider, folder, or item flags"))
+		if providerSlug != "" || folder != "" || folderID != "" || len(itemIDs) > 0 {
+			ui.PrintError("Invalid flags", fmt.Errorf("--project cannot be combined with providerSlug, folder, or item flags"))
 			os.Exit(1)
 		}
 		projectConfig, err := project.Load(projectPath)
@@ -246,20 +252,32 @@ func runExport(args []string) {
 			ui.PrintError("Could not read project config", err)
 			os.Exit(1)
 		}
-		provider = projectConfig.Provider
+		providerSlug = projectConfig.Provider
 		folder = projectConfig.Project.FolderName
 		folderID = projectConfig.Project.FolderID
 		itemIDs = projectConfig.Project.Items
 	}
 
-	if provider == "" || folder == "" {
+	if providerSlug == "" || folder == "" {
 		ui.PrintError("Missing flags", fmt.Errorf("both --provider and --folder are required"))
 		fmt.Fprintln(os.Stderr, "Usage: bwenv export --project <path> | --provider <bitwarden|1password> --folder <name> [--folder-id <id>] [--items 'id1,id2,...']")
 		os.Exit(1)
 	}
 
-	if err := export.ExportWithFolderID(context.Background(), provider, folder, folderID, itemIDs); err != nil {
-		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
+	quiet := false
+	exportFunc := export.ExportWithFolderID
+	for _, arg := range args {
+		if arg == "--quiet" {
+			quiet = true
+			exportFunc = export.ExportQuiet
+		}
+	}
+	if err := exportFunc(context.Background(), providerSlug, folder, folderID, itemIDs); err != nil {
+		// Quiet hooks signal authentication failures to their parent shell.
+		if quiet && (errors.Is(err, provider.ErrNotAuthenticated) || errors.Is(err, provider.ErrSessionExpired)) {
+			os.Exit(2)
+		}
+		// Export already reports other failures on stderr.
 		os.Exit(1)
 	}
 }
@@ -305,11 +323,8 @@ func runAllow() {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "  %s %s\n",
-			ui.E("✅", "[OK]"),
-			lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
-				fmt.Sprintf("%s project approved (%s / %s)", activator.Name(), source.ProviderSlug, source.FolderName)))
-		fmt.Fprintln(os.Stderr, `  Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'eval (bwenv login)' (Fish) to load secrets into this shell.`)
+		ui.PrintSuccess(fmt.Sprintf("Project approved · %s / %s", source.ProviderSlug, source.FolderName))
+		ui.PrintInfo(`Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'bwenv login | source' (Fish) to load variables.`)
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — approve + export.
 		_, _, err := export.AllowAndExport()
@@ -330,12 +345,7 @@ func runDisallow() {
 		ui.PrintError("Disallow failed", err)
 		os.Exit(1)
 	}
-	if len(varNames) > 0 {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked — %d variable(s) cleared\n",
-			ui.E("⛔\ufe0f", "[blocked]"), len(varNames))
-	} else {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔\ufe0f", "[blocked]"))
-	}
+	ui.PrintSuccess(fmt.Sprintf("Project disabled · %d variables cleared", len(varNames)))
 }
 
 // runExamples prints curated, copy-paste ready examples for common flows.
@@ -431,15 +441,9 @@ func runRemove() {
 	}
 
 	if removed {
-		if len(varNames) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s .envrc removed — %d variable(s) cleared\n",
-				ui.E("🗑️", "[removed]"), len(varNames))
-		} else {
-			fmt.Fprintf(os.Stderr, "  %s .envrc removed\n", ui.E("🗑️", "[removed]"))
-		}
+		ui.PrintSuccess(fmt.Sprintf("Project configuration removed · %d variables cleared", len(varNames)))
 	} else {
-		fmt.Fprintf(os.Stderr, "  %s No .envrc found in current directory\n",
-			ui.E("⚠️", "[!]"))
+		ui.PrintInfo("No project configuration found")
 	}
 }
 
@@ -470,7 +474,7 @@ func runLogin() {
 	isTTY := (fi.Mode() & os.ModeCharDevice) != 0
 
 	if isTTY {
-		fmt.Fprintln(os.Stderr, `Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'eval (bwenv login)' (Fish) so the session is set in this shell.`)
+		ui.PrintInfo(`Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'bwenv login | source' (Fish) to set the session in this shell.`)
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — authenticate + export.
 		_, _, err := export.LoginAndExport()
@@ -487,37 +491,52 @@ func runRefresh() {
 		ui.PrintError("Refresh failed", err)
 		os.Exit(1)
 	}
-	if synced {
-		ui.PrintSuccess(providerName + " synced; activation reload requested")
-		return
+	if activator, aerr := activation.ForProject(); aerr == nil {
+		if emitter, ok := activator.(activation.Emitter); ok && emitter.EmitsExports() {
+			info, _ := os.Stdout.Stat()
+			if info != nil && info.Mode()&os.ModeCharDevice == 0 {
+				if _, err := export.ActivateShell(parseShellFlag(os.Args[2:])); err != nil {
+					ui.PrintError("Refresh failed", err)
+					os.Exit(1)
+				}
+			} else {
+				ui.PrintInfo("Use the shell wrapper or evaluate bwenv refresh output to reload variables")
+			}
+		}
 	}
-	ui.PrintSuccess(providerName + " will refresh through its activation backend; no separate sync is available")
+	if synced {
+		ui.PrintSuccess(providerName + " synced")
+	} else {
+		ui.PrintSuccess(providerName + " refreshed")
+	}
 }
 
 // runActivate prepares the nearest project's activation artifact. It works from
 // nested subdirectories and is idempotent.
 func runActivate() {
-	backend, err := export.Activate()
+	backend, err := export.ActivateShell(parseShellFlag(os.Args[2:]))
 	if err != nil {
-		ui.PrintError("Activate failed", err)
+		if errors.Is(err, provider.ErrSessionExpired) || errors.Is(err, provider.ErrNotAuthenticated) {
+			ui.PrintWarning("Session locked or expired · run bwenv login")
+		} else {
+			ui.PrintError("Activation failed", err)
+		}
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "  %s activated via %s\n", ui.E("✅", "[OK]"), backend)
+	if backend != "shell" {
+		ui.PrintSuccess("Project activated · " + backend)
+	}
 }
 
 // runDeactivate revokes the nearest project's activation and prints "unset"
 // statements for the shell wrapper to eval, restoring the previous environment.
 func runDeactivate() {
-	varNames, err := export.Deactivate()
+	varNames, err := export.DeactivateShell(parseShellFlag(os.Args[2:]))
 	if err != nil {
 		ui.PrintError("Deactivate failed", err)
 		os.Exit(1)
 	}
-	if len(varNames) > 0 {
-		fmt.Fprintf(os.Stderr, "  %s deactivated — %d variable(s) cleared\n", ui.E("⛔", "[off]"), len(varNames))
-	} else {
-		fmt.Fprintf(os.Stderr, "  %s deactivated\n", ui.E("⛔", "[off]"))
-	}
+	ui.PrintSuccess(fmt.Sprintf("Project deactivated · %d variables restored", len(varNames)))
 }
 
 // runRoot prints the nearest bwenv project root, or nothing when the current
@@ -529,6 +548,12 @@ func runRoot() {
 		os.Exit(1)
 	}
 	if root != "" {
+		if len(os.Args) > 2 && os.Args[2] == "--shell-only" {
+			cfg, err := project.Load(root)
+			if err != nil || cfg.Activation.Mode != "shell" {
+				return
+			}
+		}
 		fmt.Println(root)
 	}
 }
@@ -537,7 +562,7 @@ func runRoot() {
 // $SHELL when omitted or "auto").
 func runHook(args []string) {
 	name := ""
-	for _, arg := range args {
+	for _, arg := range args[1:] {
 		if !strings.HasPrefix(arg, "-") {
 			name = arg
 			break
@@ -672,7 +697,7 @@ func printUsage() {
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Init flags:"))
-	fmt.Printf("    %s   %s\n", flagStyle.Render("--activation"), descStyle.Render("Backend: direnv (default), shell, mise (experimental)"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--activation"), descStyle.Render("Backend override: shell (default, experimental), direnv, mise (experimental); set default in config"))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Export flags:"))
@@ -680,6 +705,7 @@ func printUsage() {
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder   "), descStyle.Render("Folder or vault name to load secrets from"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder-id"), descStyle.Render("Provider folder ID (optional — avoids folder lookup)"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--items    "), descStyle.Render("Comma-separated item IDs (optional — load only specific items)"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--quiet    "), descStyle.Render("Suppress export messages for automatic hooks"))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Quick Start:"))
@@ -691,4 +717,13 @@ func printUsage() {
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, test → status, lock → logout, deny → disallow, settings → config, auth → login"))
+}
+
+func parseShellFlag(args []string) string {
+	for i, arg := range args {
+		if arg == "--shell" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return shell.DetectShell(os.Getenv("SHELL"))
 }

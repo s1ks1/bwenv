@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -67,6 +68,9 @@ func Remove() error {
 // Allow runs "direnv allow" in the current directory so the user doesn't have
 // to do it manually after "bwenv init". Non-fatal when direnv is not installed.
 func Allow() error {
+	if err := EnsureLoggingConfig(); err != nil {
+		return fmt.Errorf("configure direnv output: %w", err)
+	}
 	if _, err := exec.LookPath("direnv"); err != nil {
 		return fmt.Errorf("direnv not found in PATH")
 	}
@@ -263,7 +267,10 @@ func singleQuoteTokenEnd(s string) int {
 // message printed before .envrc runs) are suppressed from the very first cd.
 // It is idempotent: if the lines already exist it changes nothing.
 func SilenceGlobally() (modified bool, filePath string, err error) {
-	const silenceLine = `export DIRENV_LOG_FORMAT=$'\033[2m  \U0001f510 %s\033[0m'`
+	if err := EnsureLoggingConfig(); err != nil {
+		return false, "", err
+	}
+	const silenceLine = `export DIRENV_LOG_FORMAT=""`
 	const timeoutLine = `export DIRENV_WARN_TIMEOUT="10m"`
 	const markerLog = "DIRENV_LOG_FORMAT"
 	const markerTimeout = "DIRENV_WARN_TIMEOUT"
@@ -310,4 +317,44 @@ func SilenceGlobally() (modified bool, filePath string, err error) {
 	}
 
 	return true, displayPath, nil
+}
+
+// EnsureLoggingConfig works around direnv 2.37.1 ignoring DIRENV_LOG_FORMAT
+// unless a TOML config exists. Never replace existing user configuration.
+func EnsureLoggingConfig() error {
+	dir := os.Getenv("DIRENV_CONFIG")
+	if dir == "" {
+		base := os.Getenv("XDG_CONFIG_HOME")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			base = filepath.Join(home, ".config")
+		}
+		dir = filepath.Join(base, "direnv")
+	}
+	for _, name := range []string{"direnv.toml", "config.toml"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(filepath.Join(dir, "direnv.toml"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if os.IsExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString("# Enable DIRENV_LOG_FORMAT support in direnv 2.37.1.\n[global]\n")
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }

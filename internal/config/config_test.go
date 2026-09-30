@@ -31,7 +31,7 @@ func TestLoadReturnsDefaultsWhenNoFile(t *testing.T) {
 
 func TestSaveThenLoadRoundTrips(t *testing.T) {
 	path := isolateConfig(t)
-	want := Config{ShowEmoji: false, ShowDirenvOutput: true, ShowExportSummary: false}
+	want := Config{ActivationMode: "shell", ShowEmoji: false, ShowDirenvOutput: true, ShowExportSummary: false}
 
 	if err := Save(want); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -99,5 +99,34 @@ func TestEmojiHonoursPreference(t *testing.T) {
 	}
 	if got := Emoji("lock", "[lock]"); got != "lock" {
 		t.Fatalf("Emoji() with ShowEmoji=true = %q, want the emoji", got)
+	}
+}
+
+func TestLegacyConfigGetsNativeDefaultAndRejectsUnknownMode(t *testing.T) {
+	path := isolateConfig(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"show_emoji":false}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil || cfg.ActivationMode != "shell" || cfg.ShowEmoji {
+		t.Fatalf("legacy preferences: %+v, %v", cfg, err)
+	}
+	for _, mode := range []string{"shell", "direnv", "mise"} {
+		cfg.ActivationMode = mode
+		if err := Save(cfg); err != nil {
+			t.Fatal(err)
+		}
+		Invalidate()
+		got, err := Load()
+		if err != nil || got.ActivationMode != mode {
+			t.Fatalf("saved mode %s: %+v, %v", mode, got, err)
+		}
+	}
+	cfg.ActivationMode = "unknown"
+	if err := Save(cfg); err == nil {
+		t.Fatal("unknown hook accepted")
 	}
 }

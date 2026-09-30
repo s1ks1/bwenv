@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -87,5 +88,20 @@ func TestExecRunnerHonoursCancelledContext(t *testing.T) {
 
 	if _, err := (ExecRunner{}).Run(ctx, name, args, streams); err == nil {
 		t.Fatal("expected an error for an already-cancelled context")
+	}
+}
+
+func TestExecRunnerBoundsInheritedOutputPipes(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("requires a POSIX shell")
+	}
+	start := time.Now()
+	_, err = (ExecRunner{Timeout: 50 * time.Millisecond}).Run(context.Background(), sh, []string{"-c", "sleep 2 & wait"}, IO{})
+	if err == nil {
+		t.Fatal("expected cancellation")
+	}
+	if elapsed := time.Since(start); elapsed > 1800*time.Millisecond {
+		t.Fatalf("child-held pipes delayed cancellation: %v", elapsed)
 	}
 }

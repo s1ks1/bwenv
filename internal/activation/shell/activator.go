@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/s1ks1/bwenv/v3/internal/activation"
@@ -69,9 +70,31 @@ func (a *Activator) Install(cfg activation.Config) error {
 		return fmt.Errorf("could not read %s: %w", display, err)
 	}
 	if strings.Contains(string(content), hookMarker) {
+		if !strings.Contains(string(content), strings.TrimSpace(snippet)) {
+			lines := strings.Split(strings.TrimSpace(snippet), "\n")
+			lastLine := "\n" + lines[len(lines)-1] + "\n"
+			start := strings.Index(string(content), hookMarker)
+			end := strings.Index(string(content)[start:], lastLine)
+			if end < 0 {
+				return fmt.Errorf("could not safely upgrade the existing bwenv hook in %s", display)
+			}
+			end += start + len(lastLine)
+			updated := string(content[:start]) + strings.TrimSpace(snippet) + "\n" + string(content[end:])
+			info, err := os.Stat(rc)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(rc, []byte(updated), info.Mode().Perm()); err != nil {
+				return err
+			}
+		}
+
 		return activation.WriteProject(cfg, a.Name())
 	}
 
+	if err := os.MkdirAll(filepath.Dir(rc), 0755); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("could not write to %s: %w", display, err)

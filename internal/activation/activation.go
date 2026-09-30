@@ -1,6 +1,6 @@
 // Package activation defines the replaceable activation boundary: how a
-// project's secrets reach the shell. direnv is the stable default backend; the
-// native shell hooks and the mise adapter are later experimental backends.
+// project's secrets reach the shell. Native shell hooks are the v3 default for
+// new projects; direnv remains the legacy fallback and mise is optional.
 //
 // A backend never retrieves secrets. It only installs and controls the
 // activation artifacts, so the secret-retrieval path stays backend-agnostic.

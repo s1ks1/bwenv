@@ -19,7 +19,8 @@ type configOption struct {
 	key         string // Internal key for identification.
 	label       string // Display label shown to the user.
 	description string // Help text explaining what this setting does.
-	enabled     bool   // Current value of the setting.
+	value       string
+	enabled     bool // Current value of the setting.
 }
 
 // ConfigFlowModel is the Bubble Tea model for the interactive config editor.
@@ -37,6 +38,8 @@ type ConfigFlowModel struct {
 // current settings loaded from disk (or defaults if no config exists).
 func NewConfigFlow(cfg config.Config) ConfigFlowModel {
 	options := []configOption{
+		{key: "activation_mode", label: "Default Activation Hook", value: cfg.ActivationMode,
+			description: "shell: native, no extra tools (experimental). direnv/mise: require their CLI and shell hook. Applies to new projects; --activation overrides it."},
 		{
 			key:         "show_emoji",
 			label:       "Show Emoji",
@@ -52,7 +55,7 @@ func NewConfigFlow(cfg config.Config) ConfigFlowModel {
 		{
 			key:         "show_export_summary",
 			label:       "Show Export Summary",
-			description: "Show the boxed summary every time secrets are loaded via direnv",
+			description: "Show a compact summary when secrets change",
 			enabled:     cfg.ShowExportSummary,
 		},
 	}
@@ -96,7 +99,18 @@ func (m ConfigFlowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Toggle the current option.
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", " "))):
 			if m.cursor >= 0 && m.cursor < len(m.options) {
-				m.options[m.cursor].enabled = !m.options[m.cursor].enabled
+				if m.options[m.cursor].key == "activation_mode" {
+					switch m.options[m.cursor].value {
+					case "shell":
+						m.options[m.cursor].value = "direnv"
+					case "direnv":
+						m.options[m.cursor].value = "mise"
+					default:
+						m.options[m.cursor].value = "shell"
+					}
+				} else {
+					m.options[m.cursor].enabled = !m.options[m.cursor].enabled
+				}
 			}
 
 		// Save and exit.
@@ -141,7 +155,9 @@ func (m ConfigFlowModel) View() string {
 
 		// Toggle indicator.
 		var toggle string
-		if opt.enabled {
+		if opt.key == "activation_mode" {
+			toggle = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render("[" + opt.value + "]")
+		} else if opt.enabled {
 			toggle = lipgloss.NewStyle().
 				Foreground(ColorSuccess).
 				Bold(true).
@@ -206,6 +222,8 @@ func (m ConfigFlowModel) ToConfig() config.Config {
 	cfg := config.DefaultConfig()
 	for _, opt := range m.options {
 		switch opt.key {
+		case "activation_mode":
+			cfg.ActivationMode = opt.value
 		case "show_emoji":
 			cfg.ShowEmoji = opt.enabled
 		case "show_direnv_output":
@@ -276,6 +294,8 @@ func RunConfigFlow(version string) error {
 
 // printConfigSummary displays the current configuration values in a compact format.
 func printConfigSummary(cfg config.Config) {
+	PrintKeyValue("Default Hook", cfg.ActivationMode+" (new projects)")
+
 	PrintKeyValue("Show Emoji", OnOff(cfg.ShowEmoji))
 	PrintKeyValue("Direnv Output", OnOff(cfg.ShowDirenvOutput))
 	PrintKeyValue("Export Summary", OnOff(cfg.ShowExportSummary))

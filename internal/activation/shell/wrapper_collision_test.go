@@ -118,7 +118,29 @@ func TestInstallWrapperRecognizesLegacyInstall(t *testing.T) {
 		t.Fatalf("write rc: %v", err)
 	}
 
+	if modified, _, err := runshell.InstallWrapper(); err != nil || !modified {
+		t.Fatalf("InstallWrapper on legacy install = (%v, %v), want notice upgrade", modified, err)
+	}
+}
+
+func TestLegacyWrapperUpgradesLoginWithoutEval(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/bash")
+	legacy := "# bwenv shell integration — enables seamless secret management\nbwenv() {\ncase \"${1:-}\" in\nallow|disallow|deny|remove|clean|export|load) eval \"$(command bwenv \"$@\")\" ;;\n*) command bwenv \"$@\" ;;\nesac\n}\n"
+	rc := filepath.Join(home, ".bashrc")
+	if err := os.WriteFile(rc, []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+	modified, _, err := runshell.InstallWrapper()
+	if err != nil || !modified {
+		t.Fatalf("legacy upgrade: %v, %v", modified, err)
+	}
 	if modified, _, err := runshell.InstallWrapper(); err != nil || modified {
-		t.Fatalf("InstallWrapper on legacy install = (%v, %v), want (false, nil)", modified, err)
+		t.Fatalf("upgrade was not idempotent: %v, %v", modified, err)
+	}
+	data, err := os.ReadFile(rc)
+	if err != nil || !strings.Contains(string(data), "|login|auth|activate|deactivate|refresh)") {
+		t.Fatalf("login missing from wrapper: %v", err)
 	}
 }

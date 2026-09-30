@@ -15,26 +15,23 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/activation"
 	"github.com/s1ks1/bwenv/v3/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/output"
 	"github.com/s1ks1/bwenv/v3/internal/project"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
-// emojiStr returns the emoji if ShowEmoji is enabled in the user config,
-// otherwise returns the plain-text fallback. Convenience wrapper for use
-// within the envrc package so we don't import the ui package (which would
-// create a circular dependency).
-func emojiStr(emoji string, fallback string) string {
-	return config.Emoji(emoji, fallback)
-}
-
 // Activate prepares the nearest project's activation artifact and reports the
 // backend used. It works from any nested subdirectory and is idempotent:
 // activating an already-active project succeeds without duplicating state.
-func Activate() (backend string, err error) {
+func Activate() (backend string, err error) { return ActivateShell("bash") }
+
+func ActivateShell(shellName string) (backend string, err error) {
+	if err := validateShell(shellName); err != nil {
+		return "", err
+	}
 	ctx := context.Background()
 
 	root, err := project.FindRoot(".")
@@ -59,7 +56,7 @@ func Activate() (backend string, err error) {
 		if err != nil {
 			return "", err
 		}
-		if err := ExportWithFolderID(ctx, source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs); err != nil {
+		if _, err := exportSecretsForShell(ctx, source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs, false, shellName, true, false); err != nil {
 			return "", err
 		}
 		return activator.Name(), nil
@@ -77,7 +74,15 @@ func Activate() (backend string, err error) {
 // Deactivate revokes the nearest project's activation and prints "unset VAR"
 // statements so the caller's shell restores its previous environment. It is
 // idempotent: deactivating an inactive project clears nothing and succeeds.
-func Deactivate() ([]string, error) {
+func Deactivate() ([]string, error) { return DeactivateShell("bash") }
+
+func DeactivateShell(shellName string) ([]string, error) {
+	if err := validateShell(shellName); err != nil {
+		return nil, err
+	}
+	if state, ok := os.LookupEnv(stateVariable); ok {
+		return restoreState(state, shellName)
+	}
 	root, err := project.FindRoot(".")
 	if err != nil {
 		return nil, err
@@ -91,51 +96,6 @@ func Deactivate() ([]string, error) {
 	return DisallowAndUnset()
 }
 
-// ── Styles for the export summary box (printed to stderr on every direnv load) ──
-
-var (
-	// boxBorder is the border style used for the export summary box.
-	boxBorder = lipgloss.RoundedBorder()
-
-	// summaryBrand is the "bwenv" label rendered above the box.
-	summaryBrand = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#0066CC", Dark: "#58A6FF"})
-
-	// summaryMuted is used for secondary info (separators, hints, dim text).
-	summaryMuted = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"})
-
-	// summarySuccess is the green style for success indicators and counts.
-	summarySuccess = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#16A34A", Dark: "#4ADE80"})
-
-	// summaryVarName styles individual variable names inside the box.
-	summaryVarName = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6B21A8", Dark: "#C084FC"})
-
-	// summaryContext styles the provider/folder line inside the box.
-	summaryContext = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#374151", Dark: "#D1D5DB"})
-
-	// summaryError is the red style for error messages inside the box.
-	summaryError = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"})
-
-	// summaryBox is the bordered box that wraps the entire export summary.
-	summaryBox = lipgloss.NewStyle().
-			BorderStyle(boxBorder).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#0066CC", Dark: "#58A6FF"}).
-			Padding(0, 1)
-
-	// summaryBoxError is the bordered box for error summaries (red border).
-	summaryBoxError = lipgloss.NewStyle().
-			BorderStyle(boxBorder).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"}).
-			Padding(0, 1)
-)
-
 // AllowAndExport is the handler for `eval "$(bwenv allow)"`. It:
 //  1. Resolves the canonical project config (or a legacy direnv project).
 //  2. Authenticates (may prompt for password ONCE).
@@ -143,6 +103,10 @@ var (
 //  4. Exports BW_SESSION to the current shell, never to a project file.
 //  5. Approves the selected activation backend.
 func AllowAndExport() (providerSlug string, folderName string, err error) {
+	return authAndExport()
+}
+
+func authAndExport() (providerSlug string, folderName string, err error) {
 	ctx := context.Background()
 
 	// Step 1: Resolve the project's activation backend and its secret source.
@@ -158,7 +122,7 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
-	session, exportErr := exportSecrets(ctx, providerSlug, folderName, source.FolderID, source.ItemIDs, true)
+	session, exportErr := exportSecretsForShell(ctx, providerSlug, folderName, source.FolderID, source.ItemIDs, true, currentShell(), activator.Name() == "shell", false)
 	if exportErr != nil {
 		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
 	}
@@ -166,18 +130,18 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 	// Step 3: Output the fresh session token so the parent shell can keep it
 	// for this session. It is never written to project files.
 	if session != "" {
-		fmt.Printf("export BW_SESSION=%s\n", shell.Quote(session))
+		fmt.Print(assignment("BW_SESSION", session, currentShell()))
 	}
 
-	if activator.Name() == "direnv" {
-		fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
-		fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
+	userCfg, _ := config.Load()
+	if activator.Name() == "direnv" && !userCfg.ShowDirenvOutput {
+		fmt.Print(assignment("DIRENV_LOG_FORMAT", "", currentShell()))
+		fmt.Print(assignment("DIRENV_WARN_TIMEOUT", "10m", currentShell()))
 	}
 
 	// Step 4: Approve the activation artifact after the session is available.
 	if approveErr := activator.Approve(); approveErr != nil {
-		// Non-fatal — the backend tooling may not be installed.
-		_ = approveErr
+		output.Error(activator.Name()+" approval failed", approveErr)
 	}
 
 	return providerSlug, folderName, nil
@@ -194,42 +158,7 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 // it's the recovery path when a session expires, while AllowAndExport is the
 // initial approval path. Having a distinct "login" command makes the UX clearer.
 func LoginAndExport() (providerSlug string, folderName string, err error) {
-	ctx := context.Background()
-
-	// Step 1: Resolve the project's activation backend and its secret source.
-	activator, err := activation.ForProject()
-	if err != nil {
-		return "", "", err
-	}
-	source, err := activator.Resolve()
-	if err != nil {
-		return "", "", fmt.Errorf("could not resolve the project source: %w", err)
-	}
-	providerSlug, folderName = source.ProviderSlug, source.FolderName
-
-	// Step 2: Authenticate and export secrets. This is the one-and-only
-	// place the user may be prompted for their master password.
-	session, exportErr := exportSecrets(ctx, providerSlug, folderName, source.FolderID, source.ItemIDs, true)
-	if exportErr != nil {
-		return providerSlug, folderName, fmt.Errorf("export failed: %w", exportErr)
-	}
-
-	// Step 3: Output the fresh session token so the parent shell has it.
-	if session != "" {
-		fmt.Printf("export BW_SESSION=%s\n", shell.Quote(session))
-	}
-
-	if activator.Name() == "direnv" {
-		fmt.Printf("export DIRENV_LOG_FORMAT=$'\\033[2m  \\U0001f510 %%s\\033[0m'\n")
-		fmt.Printf("export DIRENV_WARN_TIMEOUT=\"10m\"\n")
-	}
-
-	// Step 5: Approve the activation artifact LAST.
-	if approveErr := activator.Approve(); approveErr != nil {
-		_ = approveErr // Non-fatal.
-	}
-
-	return providerSlug, folderName, nil
+	return authAndExport()
 }
 
 // Refresh syncs providers that support it and asks the activation backend to
@@ -276,6 +205,9 @@ func Refresh() (providerName string, synced bool, err error) {
 // DIRENV_LOG_FORMAT and DIRENV_WARN_TIMEOUT are intentionally NOT unset
 // so direnv stays quiet.
 func DisallowAndUnset() ([]string, error) {
+	if state, ok := os.LookupEnv(stateVariable); ok {
+		return restoreState(state, currentShell())
+	}
 	varNames := loadCachedVarNames()
 
 	activator, err := activation.ForProject()
@@ -288,7 +220,7 @@ func DisallowAndUnset() ([]string, error) {
 
 	// Print unset statements to stdout (captured by shell wrapper's eval).
 	for _, name := range varNames {
-		fmt.Printf("unset %s\n", name)
+		fmt.Print(unassignment(name, currentShell()))
 	}
 
 	return varNames, nil
@@ -302,9 +234,16 @@ func RemoveAndUnset() (bool, []string, error) {
 
 	removed, _, err := Remove()
 	if removed {
+		if state, ok := os.LookupEnv(stateVariable); ok {
+			names, restoreErr := restoreState(state, currentShell())
+			if err != nil {
+				return removed, names, err
+			}
+			return removed, names, restoreErr
+		}
 		// Print unsets even when metadata cleanup fails after .envrc was removed.
 		for _, name := range varNames {
-			fmt.Printf("unset %s\n", name)
+			fmt.Print(unassignment(name, currentShell()))
 		}
 	}
 	if err != nil {
@@ -344,7 +283,7 @@ func loadCachedVarNames() []string {
 	if content, err := os.ReadFile(bwenvVarsCacheFile); err == nil {
 		var names []string
 		for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
-			if line != "" {
+			if validName(line) {
 				names = append(names, line)
 			}
 		}
@@ -391,7 +330,7 @@ func parseEnvrcVarNames() []string {
 			rest := strings.TrimPrefix(line, "export ")
 			if idx := strings.Index(rest, "="); idx > 0 {
 				key := rest[:idx]
-				if !seen[key] && !skip[key] {
+				if validName(key) && !seen[key] && !skip[key] {
 					seen[key] = true
 					names = append(names, key)
 				}
@@ -405,7 +344,7 @@ func parseEnvrcVarNames() []string {
 // ── Export command ───────────────────────────────────────────────────────────
 
 // Export fetches secrets from the specified provider and folder, then prints
-// "export KEY=VALUE" lines to stdout. It also prints a rich, boxed summary
+// "export KEY=VALUE" lines to stdout. It also prints a concise summary
 // to stderr showing which variables were loaded.
 //
 // This function is called by the activation backend. It NEVER prompts for a
@@ -413,7 +352,7 @@ func parseEnvrcVarNames() []string {
 // shell's BW_SESSION environment variable.
 //
 // stdout: only "export KEY=VALUE" lines (consumed by eval)
-// stderr: styled box summary for the user (visible in the terminal)
+// stderr: concise status for the user (visible in the terminal)
 func Export(ctx context.Context, providerSlug string, folderName string, itemIDs []string) error {
 	return ExportWithFolderID(ctx, providerSlug, folderName, "", itemIDs)
 }
@@ -422,6 +361,13 @@ func Export(ctx context.Context, providerSlug string, folderName string, itemIDs
 // .envrc files. An empty folderID keeps compatibility with older projects.
 func ExportWithFolderID(ctx context.Context, providerSlug string, folderName string, folderID string, itemIDs []string) error {
 	_, err := exportSecrets(ctx, providerSlug, folderName, folderID, itemIDs, false)
+	return err
+}
+
+// ExportQuiet is used by hooks that reevaluate on every prompt. Errors still
+// return a failing exit status; explicit commands provide their diagnostics.
+func ExportQuiet(ctx context.Context, providerSlug, folderName, folderID string, itemIDs []string) error {
+	_, err := exportSecretsForShell(ctx, providerSlug, folderName, folderID, itemIDs, false, "bash", false, true)
 	return err
 }
 
@@ -437,27 +383,35 @@ func ExportInteractive(ctx context.Context, providerSlug string, folderName stri
 // When interactive=false (direnv context), authentication failures produce a
 // helpful error instead of blocking on a password prompt.
 func exportSecrets(ctx context.Context, providerSlug string, folderName string, folderID string, itemIDs []string, interactive bool) (string, error) {
+	return exportSecretsForShell(ctx, providerSlug, folderName, folderID, itemIDs, interactive, "bash", false, false)
+}
+
+func exportSecretsForShell(ctx context.Context, providerSlug string, folderName string, folderID string, itemIDs []string, interactive bool, shellName string, remember bool, quiet bool) (string, error) {
+	reportError := printExportError
+	if quiet || interactive || remember {
+		reportError = func(string, error) {}
+	}
 	// Load user preferences to decide whether to show the export summary.
 	userCfg, _ := config.Load()
 
 	// Look up the requested provider from the registry.
 	p, err := provider.Get(providerSlug)
 	if err != nil {
-		printExportError("Provider not found", err)
+		reportError("Provider not found", err)
 		return "", err
 	}
 
 	// Check that the provider's CLI tool is available on this system.
 	if !p.IsAvailable() {
 		err := fmt.Errorf("'%s' CLI is not installed", p.CLICommand())
-		printExportError(fmt.Sprintf("%s unavailable", p.Name()), err)
+		reportError(fmt.Sprintf("%s unavailable", p.Name()), err)
 		return "", err
 	}
 
 	// Authenticate with the provider.
 	auth, authErr := provider.AsAuthenticator(p)
 	if authErr != nil {
-		printExportError("Provider unsupported", authErr)
+		reportError("Provider unsupported", authErr)
 		return "", authErr
 	}
 	var session string
@@ -470,7 +424,7 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 		session, err = auth.AuthenticateNonInteractive(ctx)
 	}
 	if err != nil {
-		printExportError("Authentication failed", err)
+		reportError("Authentication failed", err)
 		return "", fmt.Errorf("authentication failed for %s: %w", p.Name(), err)
 	}
 
@@ -481,12 +435,12 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 		// Legacy projects resolve the folder by name for compatibility.
 		lister, listerErr := provider.AsFolderLister(p)
 		if listerErr != nil {
-			printExportError("Provider unsupported", listerErr)
+			reportError("Provider unsupported", listerErr)
 			return session, listerErr
 		}
 		folders, listErr := lister.ListFolders(ctx, session)
 		if listErr != nil {
-			printExportError("Could not list folders", listErr)
+			reportError("Could not list folders", listErr)
 			return session, fmt.Errorf("failed to list folders from %s: %w", p.Name(), listErr)
 		}
 		for _, f := range folders {
@@ -497,7 +451,7 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 		}
 		if targetFolder.ID == "" {
 			err := fmt.Errorf("folder %q not found (%d folders available)", folderName, len(folders))
-			printExportError("Folder not found", err)
+			reportError("Folder not found", err)
 			return session, err
 		}
 	}
@@ -505,7 +459,7 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 	// Fetch secrets — either all items in folder or specific items only.
 	fetcher, fetchErr := provider.AsSecretFetcher(p)
 	if fetchErr != nil {
-		printExportError("Provider unsupported", fetchErr)
+		reportError("Provider unsupported", fetchErr)
 		return session, fetchErr
 	}
 	var secrets []provider.Secret
@@ -515,10 +469,20 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 		secrets, err = fetcher.GetSecrets(ctx, session, targetFolder)
 	}
 	if err != nil {
-		printExportError("Could not fetch secrets", err)
+		reportError("Could not fetch secrets", err)
 		return session, fmt.Errorf("failed to get secrets from folder %q: %w", folderName, err)
 	}
 
+	if remember {
+		state, err := rememberState(secrets)
+		if err != nil {
+			return session, err
+		}
+		fmt.Print(assignment(stateVariable, state, shellName))
+	}
+
+	// A hook may reload immediately after login. Report only changed values.
+	changed := false
 	// Collect variable names for the summary (before printing export lines).
 	varNames := make([]string, 0, len(secrets))
 
@@ -526,7 +490,9 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 	// direnv will eval this output to set the environment variables.
 	for _, s := range secrets {
 		key := shell.SanitizeKey(s.Key)
-		fmt.Printf("export %s=%s\n", key, shell.Quote(s.Value))
+		value, exists := os.LookupEnv(key)
+		changed = changed || !exists || value != s.Value
+		fmt.Print(assignment(key, s.Value, shellName))
 		varNames = append(varNames, key)
 	}
 
@@ -534,10 +500,10 @@ func exportSecrets(ctx context.Context, providerSlug string, folderName string, 
 	// without needing to re-authenticate with the provider.
 	saveVarNamesCache(varNames)
 
-	// Print a rich, boxed summary to stderr so the user sees what happened.
+	// Print a concise summary to stderr so the user sees what happened.
 	// This goes to stderr to avoid polluting the eval'd stdout.
 	// Controlled by the ShowExportSummary config preference.
-	if userCfg.ShowExportSummary {
+	if !quiet && userCfg.ShowExportSummary && (interactive || changed) {
 		printExportSummary(p.Name(), folderName, varNames)
 	}
 
@@ -586,25 +552,24 @@ func PreviewSecretsByIDs(ctx context.Context, p provider.SecretFetcher, session 
 // display unset hints.
 // Returns (removed bool, varNames []string, err error).
 func Remove() (bool, []string, error) {
-	_, err := os.Stat(".envrc")
-	if os.IsNotExist(err) {
-		return false, nil, nil
-	}
+	activator, err := activation.ForProject()
 	if err != nil {
-		return false, nil, fmt.Errorf("could not check .envrc: %w", err)
+		if _, statErr := os.Stat(".envrc"); statErr != nil {
+			return false, nil, err
+		}
+		activator, err = activation.Get("direnv")
+		if err != nil {
+			return false, nil, err
+		}
 	}
-
-	// Capture variable names before we delete the file.
+	if _, err := os.Stat(".bwenv.toml"); os.IsNotExist(err) {
+		if _, err := os.Stat(".envrc"); os.IsNotExist(err) {
+			return false, nil, nil
+		}
+	}
 	varNames := loadCachedVarNames()
-
-	// Revoke the activation backend's approval. Non-fatal: the backend tooling
-	// may not be installed when just cleaning up.
-	if activator, aerr := activation.ForProject(); aerr == nil {
-		_ = activator.Unapprove()
-	}
-
-	if err := os.Remove(".envrc"); err != nil {
-		return false, varNames, fmt.Errorf("failed to remove .envrc: %w", err)
+	if err := activator.Remove(); err != nil {
+		return false, varNames, err
 	}
 	if err := os.Remove(".bwenv.toml"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return true, varNames, fmt.Errorf("failed to remove .bwenv.toml: %w", err)
@@ -616,93 +581,24 @@ func Remove() (bool, []string, error) {
 	return true, varNames, nil
 }
 
-// ── Export summary output (printed to stderr) ──────────────────────────────
-
-// printExportSummary prints a rich, boxed summary of what was loaded.
-// This is called at the end of Export() and appears in the user's terminal
-// every time direnv loads the .envrc (i.e., when they cd into the directory).
-//
-// The output is a compact bordered box that shows the provider, folder,
-// variable count, and each variable name with a key icon — all styled with
-// Lipgloss so it looks great on every terminal.
-//
-// Example output:
-//
-//	 🔐 bwenv
-//	╭──────────────────────────────────────────╮
-//	│  Bitwarden / MySecrets                   │
-//	│                                          │
-//	│  ✅ 3 variable(s) loaded                 │
-//	│    🔑 DB_USERNAME                         │
-//	│    🔑 DB_PASSWORD                         │
-//	│    🔑 API_TOKEN                           │
-//	╰──────────────────────────────────────────╯
+// printExportSummary shows the result without secret values or repeated branding.
 func printExportSummary(providerName string, folderName string, varNames []string) {
-	var lines []string
-
-	contextLine := summaryContext.Render(fmt.Sprintf("%s / %s", providerName, folderName))
-	lines = append(lines, contextLine)
-
-	// Empty separator line.
-	lines = append(lines, "")
-
+	context := providerName + " / " + folderName
 	if len(varNames) == 0 {
-		// No variables found — show a warning.
-		warningLine := summaryError.Render(emojiStr("⚠️", "[!]") + " No variables found in this folder")
-		lines = append(lines, warningLine)
-	} else {
-		// Success line with count.
-		countLine := summarySuccess.Render(fmt.Sprintf("%s %d variable(s) loaded", emojiStr("✅", "[OK]"), len(varNames)))
-		lines = append(lines, countLine)
-
-		// List each variable name with a key icon.
-		// If there are many variables, show the first batch and summarize the rest.
-		const maxShown = 12
-		shown := varNames
-		truncated := false
-		if len(shown) > maxShown {
-			shown = shown[:maxShown]
-			truncated = true
-		}
-
-		for _, name := range shown {
-			varLine := fmt.Sprintf("  %s %s", emojiStr("🔑", " *"), summaryVarName.Render(name))
-			lines = append(lines, varLine)
-		}
-
-		if truncated {
-			remaining := len(varNames) - maxShown
-			moreLine := summaryMuted.Render(fmt.Sprintf("  ... and %d more", remaining))
-			lines = append(lines, moreLine)
-		}
+		output.Warning("No variables found · " + context)
+		return
 	}
-
-	// Compose the box content and render it.
-	content := strings.Join(lines, "\n")
-	box := summaryBox.Render(content)
-
-	// Print a header line above the box with the bwenv branding.
-	brand := summaryBrand.Render(emojiStr("🔐", "[*]") + " bwenv")
-	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
+	noun := "variables"
+	if len(varNames) == 1 {
+		noun = "variable"
+	}
+	output.Success(fmt.Sprintf("%d %s loaded · %s", len(varNames), noun, context))
 }
 
-// printExportError prints a compact boxed error to stderr during export.
-// This replaces the raw error message that would otherwise confuse users
-// when direnv loads the .envrc and something goes wrong.
 func printExportError(label string, err error) {
-	var lines []string
-
-	errorLabel := summaryError.Render(emojiStr("❌", "[X]") + " " + label)
-	lines = append(lines, errorLabel)
-	lines = append(lines, "")
-
-	detail := summaryMuted.Render(err.Error())
-	lines = append(lines, detail)
-
-	// Compose the error box and render it.
-	content := strings.Join(lines, "\n")
-	box := summaryBoxError.Render(content)
-
-	brand := summaryBrand.Render(emojiStr("🔐", "[*]") + " bwenv")
-	fmt.Fprintf(os.Stderr, "\n %s\n%s\n", brand, box)
+	if errors.Is(err, provider.ErrSessionExpired) || errors.Is(err, provider.ErrNotAuthenticated) {
+		output.Warning("Session locked or expired · run bwenv login")
+		return
+	}
+	output.Error(label, err)
 }

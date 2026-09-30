@@ -39,9 +39,9 @@
 
 ## 🎯 What is bwenv?
 
-**bwenv** bridges your password manager and your shell using [direnv](https://direnv.net/). It loads secrets from **Bitwarden** or **1Password** into your project's environment variables — no copy-pasting, no `.env` files committed to git.
+**bwenv** bridges your password manager and your shell using a native hook, [direnv](https://direnv.net/), or [mise](https://mise.jdx.dev/). It loads secrets from **Bitwarden** or **1Password** into your project's environment variables — no copy-pasting, no `.env` files committed to git.
 
-Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lipgloss](https://github.com/charmbracelet/lipgloss). One static binary per platform, zero runtime dependencies beyond your password manager CLI and direnv.
+Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lipgloss](https://github.com/charmbracelet/lipgloss). One static binary per platform, the native hook needs only your password manager CLI.
 
 ### Why bwenv?
 
@@ -79,7 +79,7 @@ AI coding assistants read your project files and environment to understand conte
 
 | Tool | Required? | Description |
 |------|-----------|-------------|
-| [direnv](https://direnv.net/) | **Yes** | Loads and unloads environment variables from `.envrc` files |
+| [direnv](https://direnv.net/) | Optional | Loads and unloads environment variables from `.envrc` files |
 | [Bitwarden CLI](https://bitwarden.com/help/cli/) | One of these | Access your Bitwarden vault (`bw`) |
 | [1Password CLI](https://developer.1password.com/docs/cli/) | One of these | Access your 1Password vaults (`op`) |
 
@@ -91,6 +91,24 @@ You need **at least one** password manager CLI. bwenv detects what's installed a
 - **1Password:** run `op signin`, or rely on desktop app biometrics (op v2).
 
 If the CLI is not logged in, bwenv fails at the authentication step. See [INSTALL.md](INSTALL.md) for detailed setup instructions.
+
+### Choose your activation hook once
+
+In v3, new projects default to **shell**, a native Bash/Zsh/Fish hook with no direnv or mise dependency. Native hooks and mise remain experimental; direnv is the established option.
+
+Run `bwenv config`, select **Default Activation Hook**, press Enter to cycle through `shell`, `direnv`, and `mise`, then **S** to save. The choice applies to new projects. Existing projects keep their `.bwenv.toml` mode; `bwenv init --activation mise` overrides one project's choice.
+
+`bwenv init` shows which hook it uses and the exact setup commands. For native activation, source the displayed RC file (or open a new terminal), then run `bwenv login`. Manual Bash/Zsh setup:
+
+```bash
+eval "$(bwenv hook zsh)" # use bash for Bash
+```
+
+Mise sources the generated script with `tools = true`, so Node-based password managers use the active runtime without recursing through mise shims. Automatic mise loads stay silent; the shell shows a login hint once per project entry when the vault is locked. Tool activation still completes; run `bwenv login` to unlock it or `bwenv export --project .` to see an error.
+
+For Fish: `bwenv hook fish | source`. For direnv, enable `eval "$(direnv hook zsh)"`; for mise, enable `eval "$(mise activate zsh)"` and run `mise trust` once per project. Add the relevant command to your RC file for future sessions. PowerShell users should select direnv; the native hook supports Bash/Zsh/Fish.
+
+The native hook restores exported variables when leaving or switching projects, including previous values. It stores this state only in the shell environment, never on disk. Nested directories and repeated sourcing do not fetch secrets again. If activation fails, one concise warning is shown. Run `bwenv login` directly: the wrapper evaluates it automatically. Re-entering a project in the same shell reuses the session. A new shell or expired session requires login; session tokens are not saved on disk.
 
 ### Install bwenv
 
@@ -175,7 +193,7 @@ The TUI walks you through five steps:
 2. **Authenticate** — unlock your vault (master password, biometrics, and so on)
 3. **Pick a folder** — browse and search for the folder that holds your secrets
 4. **Pick items** — load the whole folder or select specific items
-5. **Generate `.envrc`** — bwenv writes the file in the current directory and approves it with direnv
+5. **Configure activation** — bwenv writes `.bwenv.toml` and installs your selected hook
 
 Authenticate and load secrets into this shell:
 
@@ -183,7 +201,7 @@ Authenticate and load secrets into this shell:
 bwenv login
 ```
 
-The shell integration evaluates the login output. In shells without the integration, use `eval "$(bwenv login)"` in Bash/Zsh or `eval (bwenv login)` in Fish. Once logged in, direnv loads project secrets on entry and unloads them on exit. Run login again in each new shell session.
+The shell integration evaluates the login output. In shells without the integration, use `eval "$(bwenv login)"` in Bash/Zsh or `eval (bwenv login)` in Fish. Once logged in, your selected hook loads project secrets on entry and restores the environment on exit. Run login again in each new shell session.
 
 ---
 
@@ -244,9 +262,10 @@ bwenv config
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| **Default Activation Hook** | shell | Hook for new projects; direnv and mise are optional |
 | **Show Emoji** | ON | Emoji icons in output (off for text-only output) |
 | **Show Direnv Output** | OFF | direnv's own loading/unloading messages |
-| **Show Export Summary** | ON | Boxed summary when secrets load via direnv |
+| **Show Export Summary** | ON | Compact load summary for shell, direnv, and mise |
 
 Settings persist to `~/.config/bwenv/config.json`.
 

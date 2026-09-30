@@ -2,6 +2,7 @@ package direnv
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -105,4 +106,24 @@ func chdir(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
+}
+
+func TestEnsureLoggingConfigPreservesUserSettings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DIRENV_CONFIG", dir)
+	if err := EnsureLoggingConfig(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "direnv.toml")
+	content := []byte("[global]\nstrict_env = true\n")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureLoggingConfig(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(content) {
+		t.Fatalf("user configuration changed: %s, %v", got, err)
+	}
 }

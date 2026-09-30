@@ -27,7 +27,7 @@ const wrapperBashZsh = `
 # Commands like allow/disallow/remove/login modify your shell environment directly.
 bwenv() {
   case "${1:-}" in
-    allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate)
+    allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate|refresh)
       local _bwenv_out
       _bwenv_out="$(command bwenv "$@")"
       local _bwenv_rc=$?
@@ -46,15 +46,50 @@ const wrapperFish = `
 # bwenv shell wrapper — enables seamless secret management
 function bwenv
   switch $argv[1]
-    case allow disallow deny remove clean export load login auth activate deactivate
-      set -l _out (command bwenv $argv)
+    case allow disallow deny remove clean export load login auth activate deactivate refresh
+      set -l _out (command bwenv $argv | string collect)
       set -l _rc $status
       if test $_rc -eq 0 -a -n "$_out"
-        eval $_out
+        eval "$_out"
       end
       return $_rc
     case '*'
       command bwenv $argv
+  end
+end
+`
+
+// loginNotice runs in the parent shell: mise reevaluates env._.source in a
+// clean subprocess, so notification state cannot live in that script.
+const loginNoticeMarker = "# bwenv login notice"
+const loginNoticePOSIX = `
+# bwenv login notice
+_bwenv_login_notice() {
+  if [ "${_BWENV_LOGIN_REQUIRED:-}" != "${_bwenv_login_notified:-}" ]; then
+    _bwenv_login_notified="${_BWENV_LOGIN_REQUIRED:-}"
+    [ -z "$_bwenv_login_notified" ] || command bwenv login-hint
+  fi
+}
+if [ -n "${ZSH_VERSION:-}" ]; then
+  (( ${precmd_functions[(I)_bwenv_login_notice]:-0} )) || precmd_functions+=(_bwenv_login_notice)
+else
+  case "$PROMPT_COMMAND" in
+    *_bwenv_login_notice*) ;;
+    *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_bwenv_login_notice" ;;
+  esac
+fi
+`
+const loginNoticeFish = `
+# bwenv login notice
+function _bwenv_login_notice --on-event fish_prompt
+  set -q _bwenv_login_notified; or set -g _bwenv_login_notified ""
+  set -l required ""
+  set -q _BWENV_LOGIN_REQUIRED; and set required "$_BWENV_LOGIN_REQUIRED"
+  if test "$required" != "$_bwenv_login_notified"
+    set -g _bwenv_login_notified "$required"
+    if test -n "$required"
+      command bwenv login-hint
+    end
   end
 end
 `
@@ -80,8 +115,31 @@ func InstallWrapper() (modified bool, filePath string, err error) {
 		return false, displayPath, fmt.Errorf("could not read %s: %w", displayPath, err)
 	}
 
-	if strings.Contains(string(content), wrapperMarker) ||
-		strings.Contains(string(content), legacyWrapperMarker) {
+	notice := loginNoticePOSIX
+	if filepath.Base(os.Getenv("SHELL")) == "fish" {
+		notice = loginNoticeFish
+	}
+	if strings.Contains(string(content), wrapperMarker) || strings.Contains(string(content), legacyWrapperMarker) {
+		updated := string(content)
+		for _, old := range []string{
+			"allow|disallow|deny|remove|clean|export|load)",
+			"allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate)",
+		} {
+			updated = strings.Replace(updated, old, "allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate|refresh)", 1)
+		}
+		if !strings.Contains(updated, loginNoticeMarker) {
+			updated += notice
+		}
+		if updated != string(content) {
+			info, err := os.Stat(rcPath)
+			if err != nil {
+				return false, displayPath, err
+			}
+			if err := os.WriteFile(rcPath, []byte(updated), info.Mode().Perm()); err != nil {
+				return false, displayPath, err
+			}
+			return true, displayPath, nil
+		}
 		return false, displayPath, nil
 	}
 
@@ -90,13 +148,16 @@ func InstallWrapper() (modified bool, filePath string, err error) {
 		wrapper = wrapperFish
 	}
 
+	if err := os.MkdirAll(filepath.Dir(rcPath), 0755); err != nil {
+		return false, displayPath, err
+	}
 	f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return false, displayPath, fmt.Errorf("could not write to %s: %w", displayPath, err)
 	}
 	defer f.Close()
 
-	if _, err := f.WriteString(wrapper); err != nil {
+	if _, err := f.WriteString(wrapper + notice); err != nil {
 		return false, displayPath, fmt.Errorf("failed to append to %s: %w", displayPath, err)
 	}
 

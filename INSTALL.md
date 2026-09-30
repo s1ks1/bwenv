@@ -4,6 +4,14 @@ Complete instructions for installing bwenv and all prerequisites on **macOS**, *
 
 ---
 
+## v3 activation choice
+
+The native `shell` hook is the default for new projects and needs no direnv or mise installation. Run `bwenv config` to save a different default once; use Enter on **Default Activation Hook**, then S. Existing projects retain their chosen backend.
+
+After `bwenv init`, follow its printed commands: source your shell RC file or open a new terminal, then `bwenv login`. Optional hooks require their CLI and a one-time RC entry: `eval "$(direnv hook zsh)"` or `eval "$(mise activate zsh)"` (replace zsh with bash). Fish uses `direnv hook fish | source` or `mise activate fish | source`. Mise also requires `mise trust` in the project. Native manual setup uses `eval "$(bwenv hook zsh)"` or `bwenv hook fish | source`.
+
+Native Bash/Zsh/Fish and mise are experimental in v3. For PowerShell, select direnv in `bwenv config` and follow the PowerShell instructions below.
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)

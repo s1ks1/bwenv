@@ -28,6 +28,33 @@ func TestHookRejectsUnsupportedShell(t *testing.T) {
 	}
 }
 
+func TestHookIgnoresLegacyCLIHelpOutput(t *testing.T) {
+	for _, name := range []string{"bash", "zsh"} {
+		t.Run(name, func(t *testing.T) {
+			path, err := exec.LookPath(name)
+			if err != nil {
+				t.Skip(name + " unavailable")
+			}
+			dir := t.TempDir()
+			fake := "#!/bin/sh\nprintf '╭─ old bwenv help ─╮\\nSetup:\\n'\n"
+			if err := os.WriteFile(filepath.Join(dir, "bwenv"), []byte(fake), 0755); err != nil {
+				t.Fatal(err)
+			}
+			hook, err := Hook(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := `export PATH="$1"` + "\n" + hook + "\n_bwenv_prompt_hook\n"
+			cmd := exec.Command(path, "-c", script, name, dir)
+			cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "ZDOTDIR="+t.TempDir())
+			output, err := cmd.CombinedOutput()
+			if err != nil || len(output) != 0 {
+				t.Fatalf("legacy CLI produced startup errors: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
 func TestDetectShell(t *testing.T) {
 	cases := map[string]string{
 		"/bin/zsh":      "zsh",

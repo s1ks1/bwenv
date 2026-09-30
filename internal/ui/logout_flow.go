@@ -5,159 +5,49 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 // RunLogoutFlow locks all available provider vaults and reports the results.
 // This is the main entry point for the "bwenv logout" command.
-//
-// The flow:
-//  1. Display a banner with the version.
-//  2. Iterate over all available providers.
-//  3. For each provider that is authenticated, call Lock() to terminate the session.
-//  4. Print a summary of which providers were locked.
-//  5. Remind the user about environment variables that may still hold tokens.
 func RunLogoutFlow(version string) error {
 	ctx := context.Background()
-	PrintBanner(version)
-	fmt.Println()
-
 	allProviders := provider.Available()
-
 	if len(allProviders) == 0 {
-		PrintWarning("No provider CLI tools found — nothing to log out of")
+		PrintInfo("No provider CLI found")
 		return nil
 	}
-
-	PrintStep(1, 1, E("🔒", "[>]")+" Locking vaults...")
-	fmt.Println()
-
-	// Track results for the summary.
-	type lockResult struct {
-		name    string
-		wasAuth bool
-		locked  bool
-		err     error
-	}
-
-	var results []lockResult
-
+	active := false
 	for _, p := range allProviders {
-		auth, authErr := provider.AsAuthenticator(p)
-		locker, lockErr := provider.AsLocker(p)
-		wasAuthenticated := authErr == nil && auth.IsAuthenticated(ctx)
-
-		if !wasAuthenticated {
-			results = append(results, lockResult{
-				name:    p.Name(),
-				wasAuth: false,
-				locked:  false,
-			})
+		auth, err := provider.AsAuthenticator(p)
+		if err != nil || !auth.IsAuthenticated(ctx) {
 			continue
 		}
-
-		// Attempt to lock/sign out.
-		var attemptErr error
-		if lockErr == nil {
-			attemptErr = locker.Lock(ctx)
+		active = true
+		locker, err := provider.AsLocker(p)
+		if err == nil {
+			err = locker.Lock(ctx)
+		}
+		if err != nil {
+			PrintError("Could not lock "+p.Name(), err)
 		} else {
-			attemptErr = lockErr
-		}
-		results = append(results, lockResult{
-			name:    p.Name(),
-			wasAuth: true,
-			locked:  attemptErr == nil,
-			err:     attemptErr,
-		})
-	}
-
-	// Print results for each provider.
-	anyLocked := false
-	anyErrors := false
-
-	for _, r := range results {
-		if !r.wasAuth {
-			PrintInfoLine(r.name, "no active session")
-			continue
-		}
-
-		if r.locked {
-			PrintSuccess(fmt.Sprintf("%s vault locked", r.name))
-			anyLocked = true
-		} else {
-			PrintError(fmt.Sprintf("Failed to lock %s", r.name), r.err)
-			anyErrors = true
+			PrintSuccess(p.Name() + " vault locked")
 		}
 	}
-
-	fmt.Println()
-
-	// Warn about environment variables that may still hold session tokens
-	// in the current shell process. Locking the vault invalidates the token
-	// server-side, but the variable lingers until the shell is restarted.
-	envWarnings := collectSessionEnvWarnings()
-	if len(envWarnings) > 0 {
-		warnTitle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorWarning).
-			Render(E("⚠️", "[!]") + " Active session variables detected:")
-
-		fmt.Printf("  %s\n\n", warnTitle)
-
-		for _, w := range envWarnings {
-			varName := lipgloss.NewStyle().
-				Foreground(ColorSecondary).
-				Bold(true).
-				Render(w.name)
-
-			hint := lipgloss.NewStyle().
-				Foreground(ColorMuted).
-				Render(w.hint)
-
-			fmt.Printf("    %s  %s\n", varName, hint)
-		}
-
-		fmt.Println()
-
-		clearHint := lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			Italic(true).
-			Render("  To clear these from your current shell, run:")
-
-		fmt.Println(clearHint)
-
-		for _, w := range envWarnings {
-			cmd := lipgloss.NewStyle().
-				Bold(true).
-				Foreground(ColorPrimary).
-				Render(fmt.Sprintf("    unset %s", w.name))
-			fmt.Println(cmd)
-		}
-
-		fmt.Println()
+	if !active {
+		PrintInfo("No active sessions")
 	}
-
-	// Final summary.
-	if anyLocked && !anyErrors {
-		var summaryLines []string
-		summaryLines = append(summaryLines, E("✅", "[OK]")+" All sessions terminated")
-		summaryLines = append(summaryLines, "")
-		summaryLines = append(summaryLines, "  Your vaults are now locked.")
-		summaryLines = append(summaryLines, "  Run 'bwenv login' to start a new session.")
-		PrintBoxSuccess(summaryLines...)
-	} else if anyErrors {
-		PrintWarning("Some providers could not be locked — see errors above")
-	} else {
-		PrintInfo("No active sessions found — nothing to lock")
+	warnings := collectSessionEnvWarnings()
+	if len(warnings) > 0 {
+		names := make([]string, 0, len(warnings))
+		for _, warning := range warnings {
+			names = append(names, warning.name)
+		}
+		PrintWarning("Clear session variables from this shell: unset " + strings.Join(names, " "))
 	}
-
-	fmt.Println()
-
 	return nil
 }
 
