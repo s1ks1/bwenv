@@ -1,4 +1,4 @@
-package envrc
+package export
 
 // PER-9 regression: automated coverage for user-facing handling of the
 // provider-failure scenario on the fast export path. Additive-only test file;
@@ -6,6 +6,8 @@ package envrc
 // patched (same convention as stability_test.go).
 
 import (
+	"context"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,13 +45,13 @@ func TestFastExportProviderFailureIsActionableAndSafe(t *testing.T) {
 	stabilityChdir(t, t.TempDir())
 
 	stdout, stderr, err := stabilityCaptureOutput(t, func() error {
-		return ExportWithFolderID("bitwarden", "Folder", "folder-id", nil)
+		return ExportWithFolderID(context.Background(), "bitwarden", "Folder", "folder-id", nil)
 	})
 	if err == nil {
 		t.Fatal("expected ExportWithFolderID to fail when the provider is unavailable")
 	}
 
-	// envrc.go wraps the provider error as
+	// export.go wraps the provider error as
 	//   "failed to get secrets from folder %q: %w"
 	// The bitwarden provider (PER-26) replaces raw CLI stderr with a generic,
 	// actionable message, so assert on that contract rather than on the CLI's

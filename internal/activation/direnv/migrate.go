@@ -1,21 +1,19 @@
-package envrc
+package direnv
 
 import (
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/s1ks1/bwenv/v3/internal/project"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 const migrationBackupPath = ".envrc.bwenv.bak"
 
-const (
-	generatedDirenvLogFormat = `export DIRENV_LOG_FORMAT=$'\033[2m  \U0001f510 %s\033[0m'`
-	generatedDirenvTimeout   = `export DIRENV_WARN_TIMEOUT="10m"`
-)
-
-// MigrateProject converts a generated legacy .envrc to canonical project metadata.
-func MigrateProject(dryRun bool) (string, error) {
+// Migrate converts a generated legacy .envrc to canonical project metadata.
+func Migrate(dryRun bool) (string, error) {
 	if _, err := os.Lstat(".bwenv.toml"); err == nil {
 		return "", fmt.Errorf(".bwenv.toml already exists; this project does not need migration")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -26,24 +24,24 @@ func MigrateProject(dryRun bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read legacy .envrc: %w", err)
 	}
-	providerSlug, folderName, folderID, itemIDs, err := ParseEnvrcConfigWithFolderID()
+	providerSlug, folderName, folderID, itemIDs, err := ParseConfigWithFolderID()
 	if err != nil {
 		return "", fmt.Errorf("could not read legacy bwenv settings: %w", err)
 	}
 
-	projectConfig := ProjectConfig{
-		Version:  projectConfigVersion,
+	projectConfig := project.Config{
+		Version:  project.ConfigVersion,
 		Provider: providerSlug,
-		Project:  ProjectMetadata{FolderID: folderID, FolderName: folderName, Items: itemIDs},
-		Activation: ActivationConfig{
+		Project:  project.Metadata{FolderID: folderID, FolderName: folderName, Items: itemIDs},
+		Activation: project.Activation{
 			Mode: "direnv",
 		},
 	}
-	configData, err := encodeProjectConfig(projectConfig)
+	configData, err := project.Encode(projectConfig)
 	if err != nil {
 		return "", fmt.Errorf("legacy settings cannot be migrated: %w", err)
 	}
-	activationFile, hasSession, err := migratedEnvrc(original)
+	activationFile, backupFile, hasSession, err := migratedEnvrc(original)
 	if err != nil {
 		return "", err
 	}
@@ -54,9 +52,9 @@ func MigrateProject(dryRun bool) (string, error) {
 	}
 
 	if dryRun {
-		plan := "Legacy bwenv project detected.\nPlanned changes:\n  + create .bwenv.toml\n  ~ replace .envrc with a canonical activation command\n  + save the original .envrc as " + migrationBackupPath + " (mode 0600 where supported)\n"
+		plan := "Legacy bwenv project detected.\nPlanned changes:\n  + create .bwenv.toml\n  ~ replace .envrc with a canonical activation command\n  + save a private backup as " + migrationBackupPath + " (mode 0600 where supported)\n"
 		if hasSession {
-			plan += "  = retain BW_SESSION in .envrc for v2 compatibility\n"
+			plan += "  - remove BW_SESSION from project files; run 'bwenv login' to set a shell session\n"
 		}
 		return plan + "No files changed.\n", nil
 	}
@@ -72,11 +70,11 @@ func MigrateProject(dryRun bool) (string, error) {
 	}
 	defer os.Remove(activationTemp)
 
-	if err := writeMigrationBackup(original); err != nil {
+	if err := writeMigrationBackup(backupFile); err != nil {
 		return "", err
 	}
 	if err := os.Rename(configTemp, ".bwenv.toml"); err != nil {
-		return "", fmt.Errorf("write .bwenv.toml; original .envrc is unchanged and backed up: %w", err)
+		return "", fmt.Errorf("write .bwenv.toml; legacy .envrc is unchanged and its redacted backup is at %s: %w", migrationBackupPath, err)
 	}
 	if err := os.Remove(".envrc"); err != nil {
 		removeErr := os.Remove(".bwenv.toml")
@@ -97,56 +95,48 @@ func MigrateProject(dryRun bool) (string, error) {
 		return "", fmt.Errorf("replace .envrc: %w; original restored; backup: %s", err, migrationBackupPath)
 	}
 
-	return "Migration complete. Original .envrc backed up to " + migrationBackupPath + ".\n", nil
+	message := "Migration complete. A redacted backup was saved to " + migrationBackupPath + ".\n"
+	if hasSession {
+		message += "The project session was removed; run 'bwenv login' in this shell to load secrets.\n"
+	}
+	return message, nil
 }
 
-func migratedEnvrc(original []byte) ([]byte, bool, error) {
-	var preserved []string
-	var hasSession bool
+func migratedEnvrc(original []byte) (activationFile []byte, backupFile []byte, hasSession bool, err error) {
 	var exportCommands int
-	for _, line := range strings.Split(string(original), "\n") {
-		line = strings.TrimSpace(line)
+	lines := strings.Split(string(original), "\n")
+	backupLines := append([]string(nil), lines...)
+	for i, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		switch {
-		case line == generatedDirenvLogFormat:
-			preserved = append(preserved, line)
-		case line == generatedDirenvTimeout:
-			preserved = append(preserved, line)
+		case line == generatedDirenvLogFormat, line == generatedDirenvTimeout:
 		case strings.HasPrefix(line, "export BW_SESSION="):
 			if hasSession {
-				return nil, false, fmt.Errorf("legacy .envrc contains multiple BW_SESSION assignments; review it manually")
+				return nil, nil, false, fmt.Errorf("legacy .envrc contains multiple BW_SESSION assignments; review it manually")
 			}
 			sessionValue := strings.TrimPrefix(line, "export BW_SESSION=")
 			session, ok := unquoteShellValue(sessionValue)
-			if !ok || shellQuote(session) != sessionValue {
-				return nil, false, fmt.Errorf("legacy .envrc contains a non-literal BW_SESSION assignment; review it manually")
+			if !ok || shell.Quote(session) != sessionValue {
+				return nil, nil, false, fmt.Errorf("legacy .envrc contains a non-literal BW_SESSION assignment; review it manually")
 			}
 			hasSession = true
-			preserved = append(preserved, line)
+			backupLines[i] = "# BW_SESSION removed by bwenv migration; run bwenv login."
 		case strings.HasPrefix(line, `eval "$(bwenv export `) && strings.HasSuffix(line, `)"`):
 			exportCommands++
 		default:
-			return nil, hasSession, fmt.Errorf("legacy .envrc contains custom shell code; migrate it manually to avoid losing behavior")
+			return nil, nil, hasSession, fmt.Errorf("legacy .envrc contains custom shell code; migrate it manually to avoid losing behavior")
 		}
 	}
 	if exportCommands != 1 {
-		return nil, hasSession, fmt.Errorf("legacy .envrc must contain exactly one generated bwenv export command")
+		return nil, nil, hasSession, fmt.Errorf("legacy .envrc must contain exactly one generated bwenv export command")
 	}
 
-	var b strings.Builder
-	b.WriteString("# Generated by bwenv migrate.\n")
-	b.WriteString("# Project references are stored in .bwenv.toml.\n")
-	if hasSession {
-		b.WriteString("# BW_SESSION remains in .envrc until runtime session management is available.\n")
-	}
-	for _, line := range preserved {
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	b.WriteString("eval \"$(bwenv export --project .)\"\n")
-	return []byte(b.String()), hasSession, nil
+	activationFile = []byte("# Generated by bwenv migrate. Project settings are in .bwenv.toml.\neval \"$(bwenv export --project .)\"\n")
+	backupFile = []byte(strings.Join(backupLines, "\n"))
+	return activationFile, backupFile, hasSession, nil
 }
 
 func unquoteShellValue(value string) (string, bool) {

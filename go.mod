@@ -1,4 +1,4 @@
-module github.com/s1ks1/bwenv/v2
+module github.com/s1ks1/bwenv/v3
 
 go 1.24.6
 

@@ -3,6 +3,7 @@ package benchmark
 import (
 	"bytes"
 	"context"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
-	"github.com/s1ks1/bwenv/v2/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v3/internal/process"
 )
 
 func installFakeCLI(t *testing.T) string {
@@ -35,7 +36,7 @@ func installFakeCLI(t *testing.T) string {
 
 func TestBenchmarkCountsCurrentBitwardenPathWithoutSecrets(t *testing.T) {
 	dir := installFakeCLI(t)
-	report, err := Benchmark("bitwarden", "Fixture", "folder-1", nil)
+	report, err := Benchmark(context.Background(), "bitwarden", "Fixture", "folder-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestBenchmarkCountsCurrentBitwardenPathWithoutSecrets(t *testing.T) {
 func TestBenchmarkExpiredSessionRedactsProviderOutput(t *testing.T) {
 	installFakeCLI(t)
 	t.Setenv("BWENV_FAKE_SCENARIO", "expired")
-	_, err := Benchmark("bitwarden", "Fixture", "folder-1", nil)
+	_, err := Benchmark(context.Background(), "bitwarden", "Fixture", "folder-1", nil)
 	if err == nil || !strings.Contains(err.Error(), "bwenv login") {
 		t.Fatalf("expected actionable auth error, got %v", err)
 	}
@@ -72,7 +73,7 @@ func TestBenchmarkExpiredSessionRedactsProviderOutput(t *testing.T) {
 
 func TestBenchmarkSelectedItemsCount(t *testing.T) {
 	installFakeCLI(t)
-	report, err := Benchmark("bitwarden", "Fixture", "folder-1", []string{"item-1", "item-2"})
+	report, err := Benchmark(context.Background(), "bitwarden", "Fixture", "folder-1", []string{"item-1", "item-2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestBenchmarkOnePassword(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "op"+ext), binary, 0700); err != nil {
 		t.Fatal(err)
 	}
-	report, err := Benchmark("1password", "Fixture", "vault-1", nil)
+	report, err := Benchmark(context.Background(), "1password", "Fixture", "vault-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func TestBenchmarkOnePassword(t *testing.T) {
 func TestBenchmarkMalformedProviderOutputIsGeneric(t *testing.T) {
 	installFakeCLI(t)
 	t.Setenv("BWENV_FAKE_SCENARIO", "malformed")
-	_, err := Benchmark("bitwarden", "Fixture", "folder-1", nil)
+	_, err := Benchmark(context.Background(), "bitwarden", "Fixture", "folder-1", nil)
 	if err == nil || strings.Contains(err.Error(), "not-json") {
 		t.Fatalf("malformed provider payload leaked: %v", err)
 	}

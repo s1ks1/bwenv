@@ -1,4 +1,4 @@
-package provider
+package bitwarden
 
 import (
 	"context"
@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s1ks1/bwenv/v2/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 type syncTestRunner struct {
@@ -49,10 +50,10 @@ func TestBitwardenSessionGoesViaEnvNotArgv(t *testing.T) {
 	runner := &recordingRunner{}
 	b := &Bitwarden{Runner: runner}
 
-	_, _ = b.ListFolders(session)
-	_, _ = b.GetSecrets(session, Folder{ID: "folder-1", Name: "Dev"})
-	_, _ = b.GetSecretsByItemIDs(session, Folder{ID: "folder-1", Name: "Dev"}, []string{"item-1"})
-	_ = b.IsAuthenticated()
+	_, _ = b.ListFolders(context.Background(), session)
+	_, _ = b.GetSecrets(context.Background(), session, provider.Folder{ID: "folder-1", Name: "Dev"})
+	_, _ = b.GetSecretsByItemIDs(context.Background(), session, provider.Folder{ID: "folder-1", Name: "Dev"}, []string{"item-1"})
+	_ = b.IsAuthenticated(context.Background())
 
 	if len(runner.names) == 0 {
 		t.Fatal("no bw invocations recorded")
@@ -77,7 +78,7 @@ func TestBitwardenSessionGoesViaEnvNotArgv(t *testing.T) {
 
 func TestBitwardenSyncRunsQuietly(t *testing.T) {
 	runner := &syncTestRunner{}
-	if err := (&Bitwarden{Runner: runner}).Sync(); err != nil {
+	if err := (&Bitwarden{Runner: runner}).Sync(context.Background()); err != nil {
 		t.Fatalf("Sync() returned error: %v", err)
 	}
 	if runner.name != "bw" || len(runner.args) != 1 || runner.args[0] != "sync" {
@@ -90,7 +91,7 @@ func TestBitwardenSyncRunsQuietly(t *testing.T) {
 
 func TestBitwardenSyncReturnsCommandError(t *testing.T) {
 	wantErr := errors.New("command failed")
-	err := (&Bitwarden{Runner: &syncTestRunner{err: wantErr}}).Sync()
+	err := (&Bitwarden{Runner: &syncTestRunner{err: wantErr}}).Sync(context.Background())
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Sync() error = %v, want wrapped %v", err, wantErr)
 	}
@@ -152,13 +153,13 @@ func TestBitwardenItemsToSecrets(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, item := range items {
 		for _, field := range item.Fields {
 			if field.Name == "" {
 				continue
 			}
-			secrets = append(secrets, Secret{Key: field.Name, Value: field.Value})
+			secrets = append(secrets, provider.Secret{Key: field.Name, Value: field.Value})
 		}
 	}
 
@@ -190,13 +191,13 @@ func TestBitwardenSkipsEmptyFieldNames(t *testing.T) {
 		},
 	}
 
-	var secrets []Secret
+	var secrets []provider.Secret
 	for _, item := range items {
 		for _, field := range item.Fields {
 			if field.Name == "" {
 				continue
 			}
-			secrets = append(secrets, Secret{Key: field.Name, Value: field.Value})
+			secrets = append(secrets, provider.Secret{Key: field.Name, Value: field.Value})
 		}
 	}
 
@@ -215,12 +216,12 @@ func TestBitwardenFolderToFolderStruct(t *testing.T) {
 		{ID: "f3", Name: ""}, // Should be skipped
 	}
 
-	folders := make([]Folder, 0, len(raw))
+	folders := make([]provider.Folder, 0, len(raw))
 	for _, f := range raw {
 		if f.Name == "" {
 			continue
 		}
-		folders = append(folders, Folder(f))
+		folders = append(folders, provider.Folder(f))
 	}
 
 	if len(folders) != 2 {
@@ -237,9 +238,9 @@ func TestBitwardenItemsToSecretItems(t *testing.T) {
 		{ID: "id-2", Name: "Database"},
 	}
 
-	items := make([]SecretItem, 0, len(raw))
+	items := make([]provider.SecretItem, 0, len(raw))
 	for _, item := range raw {
-		items = append(items, SecretItem{ID: item.ID, Name: item.Name})
+		items = append(items, provider.SecretItem{ID: item.ID, Name: item.Name})
 	}
 
 	if len(items) != 2 {

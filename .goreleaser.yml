@@ -150,7 +150,7 @@ release:
 
     **Go Install:**
     ```bash
-    go install github.com/s1ks1/bwenv/v2@latest
+    go install github.com/s1ks1/bwenv/v3@latest
     ```
 
     **Quick Install (macOS / Linux):**

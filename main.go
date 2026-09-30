@@ -4,15 +4,25 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"runtime/debug"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/benchmark"
-	"github.com/s1ks1/bwenv/v2/internal/envrc"
-	"github.com/s1ks1/bwenv/v2/internal/ui"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	_ "github.com/s1ks1/bwenv/v3/internal/activation/mise"
+	"github.com/s1ks1/bwenv/v3/internal/activation/shell"
+	"github.com/s1ks1/bwenv/v3/internal/benchmark"
+	"github.com/s1ks1/bwenv/v3/internal/export"
+	"github.com/s1ks1/bwenv/v3/internal/project"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
+	"github.com/s1ks1/bwenv/v3/internal/ui"
 )
 
 // Version is injected at build time via -ldflags (GoReleaser/Makefile).
@@ -25,7 +35,7 @@ func init() {
 	if Version != "" {
 		return
 	}
-	Version = "v2.4.0-dev"
+	Version = "v3.0.0-dev"
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		return
@@ -44,7 +54,7 @@ func init() {
 		}
 	}
 	if len(rev) >= 7 {
-		Version = "v2.4.0-dev+" + rev[:7]
+		Version = "v3.0.0-dev+" + rev[:7]
 		if modified == "true" {
 			Version += "-dirty"
 		}
@@ -67,13 +77,17 @@ func main() {
 	case "init":
 		// Full interactive TUI flow: pick provider → unlock vault → pick folder → generate .envrc
 		// Note: init flow automatically runs allow at the end (best UX).
-		runInit()
+		// Use --activation <direnv|shell|mise> to choose the backend (default direnv).
+		runInit(args)
 
 	case "export", "load":
 		// Non-interactive export for use inside .envrc files.
 		// "load" is an alias for "export" for convenience.
 		// Usage: bwenv export --provider bitwarden --folder "MyFolder"
 		runExport(args)
+
+	case "login-hint":
+		ui.PrintWarning("Variables are not loaded · run bwenv login")
 
 	case "allow":
 		// Explicitly approve .envrc in the current directory.
@@ -106,8 +120,24 @@ func main() {
 		runLogin()
 
 	case "refresh":
-		// Sync provider data where supported and trigger a direnv reload.
+		// Sync provider data where supported and trigger an activation reload.
 		runRefresh()
+
+	case "activate":
+		// Make the project's activation artifact ready in the current directory.
+		runActivate()
+
+	case "deactivate":
+		// Revoke the project's activation and clear its variables.
+		runDeactivate()
+
+	case "hook":
+		// Print the native shell hook for the requested shell (experimental).
+		runHook(args)
+
+	case "root":
+		// Print the nearest project root (used by the shell hook).
+		runRoot()
 
 	case "logout", "lock":
 		// Lock all provider vaults and terminate sessions.
@@ -141,18 +171,23 @@ func main() {
 func runBenchmark(args []string) {
 	providerSlug, folder, folderID, itemIDs := parseExportFlags(args)
 	if providerSlug == "" && folder == "" {
-		var err error
-		providerSlug, folder, folderID, itemIDs, err = envrc.ParseEnvrcConfigWithFolderID()
-		if err != nil {
+		activator, activationErr := activation.ForProject()
+		if activationErr != nil {
 			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
 			os.Exit(1)
 		}
+		source, resolveErr := activator.Resolve()
+		if resolveErr != nil {
+			fmt.Fprintln(os.Stderr, "benchmark: provide --provider and --folder, or run inside a bwenv project")
+			os.Exit(1)
+		}
+		providerSlug, folder, folderID, itemIDs = source.ProviderSlug, source.FolderName, source.FolderID, source.ItemIDs
 	}
 	if providerSlug == "" || folder == "" {
 		fmt.Fprintln(os.Stderr, "benchmark: both --provider and --folder are required")
 		os.Exit(1)
 	}
-	report, err := benchmark.Benchmark(providerSlug, folder, folderID, itemIDs)
+	report, err := benchmark.Benchmark(context.Background(), providerSlug, folder, folderID, itemIDs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
 		os.Exit(1)
@@ -180,12 +215,23 @@ func runVersion() {
 	fmt.Printf("  %s\n\n", mutedStyle.Render("Run 'bwenv examples' for usage examples"))
 }
 
-// runInit launches the full interactive TUI for setting up secrets.
-func runInit() {
-	if err := ui.RunInitFlow(Version); err != nil {
+// runInit launches the full interactive TUI for setting up secrets. The
+// activation backend is chosen with --activation (default: direnv).
+func runInit(args []string) {
+	flags := flag.NewFlagSet("init", flag.ContinueOnError)
+	mode := flags.String("activation", "", "shell (default), direnv, or mise (experimental)")
+	if err := flags.Parse(args[1:]); err != nil {
+		os.Exit(1)
+	}
+	if flags.NArg() != 0 {
+		ui.PrintError("Invalid arguments", fmt.Errorf("init accepts only --activation"))
+		os.Exit(1)
+	}
+	if err := ui.RunInitFlow(Version, *mode); err != nil && !errors.Is(err, ui.ErrCancelled) {
 		ui.PrintError("Init failed", err)
 		os.Exit(1)
 	}
+
 }
 
 // runExport outputs "export KEY=VALUE" lines to stdout.
@@ -194,32 +240,44 @@ func runInit() {
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder)"
 //	eval "$(bwenv export --provider bitwarden --folder MyFolder --items 'id1,id2')"
 func runExport(args []string) {
-	provider, folder, folderID, itemIDs := parseExportFlags(args)
+	providerSlug, folder, folderID, itemIDs := parseExportFlags(args)
 	projectPath := parseProjectFlag(args)
 	if projectPath != "" {
-		if provider != "" || folder != "" || folderID != "" || len(itemIDs) > 0 {
-			ui.PrintError("Invalid flags", fmt.Errorf("--project cannot be combined with provider, folder, or item flags"))
+		if providerSlug != "" || folder != "" || folderID != "" || len(itemIDs) > 0 {
+			ui.PrintError("Invalid flags", fmt.Errorf("--project cannot be combined with providerSlug, folder, or item flags"))
 			os.Exit(1)
 		}
-		projectConfig, err := envrc.LoadProjectConfig(projectPath)
+		projectConfig, err := project.Load(projectPath)
 		if err != nil {
 			ui.PrintError("Could not read project config", err)
 			os.Exit(1)
 		}
-		provider = projectConfig.Provider
+		providerSlug = projectConfig.Provider
 		folder = projectConfig.Project.FolderName
 		folderID = projectConfig.Project.FolderID
 		itemIDs = projectConfig.Project.Items
 	}
 
-	if provider == "" || folder == "" {
+	if providerSlug == "" || folder == "" {
 		ui.PrintError("Missing flags", fmt.Errorf("both --provider and --folder are required"))
 		fmt.Fprintln(os.Stderr, "Usage: bwenv export --project <path> | --provider <bitwarden|1password> --folder <name> [--folder-id <id>] [--items 'id1,id2,...']")
 		os.Exit(1)
 	}
 
-	if err := envrc.ExportWithFolderID(provider, folder, folderID, itemIDs); err != nil {
-		fmt.Fprintf(os.Stderr, "bwenv export error: %v\n", err)
+	quiet := false
+	exportFunc := export.ExportWithFolderID
+	for _, arg := range args {
+		if arg == "--quiet" {
+			quiet = true
+			exportFunc = export.ExportQuiet
+		}
+	}
+	if err := exportFunc(context.Background(), providerSlug, folder, folderID, itemIDs); err != nil {
+		// Quiet hooks signal authentication failures to their parent shell.
+		if quiet && (errors.Is(err, provider.ErrNotAuthenticated) || errors.Is(err, provider.ErrSessionExpired)) {
+			os.Exit(2)
+		}
+		// Export already reports other failures on stderr.
 		os.Exit(1)
 	}
 }
@@ -236,7 +294,7 @@ func parseProjectFlag(args []string) string {
 	return ""
 }
 
-// runAllow approves .envrc in the current directory via direnv and outputs
+// runAllow approves the current project's activation artifact and outputs
 // export statements to stdout. When called through the bwenv shell wrapper
 // (installed by "bwenv init"), the exports are eval'd automatically so
 // variables appear in the current shell.
@@ -251,47 +309,25 @@ func runAllow() {
 		// Direct invocation without the shell wrapper.
 		// Don't print secrets to the terminal — just approve .envrc.
 		//
-		// Before approving, re-authenticate and update .envrc with a fresh
-		// session token. Otherwise direnv re-fires with the stale BW_SESSION
-		// from .envrc and "bwenv export" fails with "session expired".
-		prov, folder, _, _ := envrc.ParseEnvrcConfig()
-		if prov != "" && folder != "" {
-			session, err := envrc.ReauthenticateProvider(prov)
-			if err != nil {
-				// Non-fatal — if re-auth fails (e.g. 1Password, no session needed),
-				// we still approve .envrc and let direnv handle it.
-				_ = err
-			} else if session != "" {
-				if updateErr := envrc.UpdateSession(session); updateErr != nil {
-					fmt.Fprintf(os.Stderr, "  %s %s\n",
-						ui.E("⚠️", "[!]"),
-						lipgloss.NewStyle().Foreground(ui.ColorWarning).Render(
-							fmt.Sprintf("Could not update .envrc session: %v", updateErr)))
-				}
-			}
-		}
-
-		if err := envrc.AllowDirenv(); err != nil {
+		activator, err := activation.ForProject()
+		if err != nil {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
 		}
-		if prov != "" && folder != "" {
-			fmt.Fprintf(os.Stderr, "  %s %s\n",
-				ui.E("✅", "[OK]"),
-				lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
-					fmt.Sprintf(".envrc approved (%s / %s) — secrets load on next prompt", prov, folder)))
-		} else {
-			fmt.Fprintf(os.Stderr, "  %s %s\n",
-				ui.E("✅", "[OK]"),
-				lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
-					".envrc approved — secrets load on next prompt"))
+		source, err := activator.Resolve()
+		if err != nil {
+			ui.PrintError("Allow failed", err)
+			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "  %s\n",
-			lipgloss.NewStyle().Foreground(ui.ColorMuted).Italic(true).Render(
-				"Tip: restart your shell to enable the bwenv wrapper, then this works automatically."))
+		if err := activator.Approve(); err != nil {
+			ui.PrintError("Allow failed", err)
+			os.Exit(1)
+		}
+		ui.PrintSuccess(fmt.Sprintf("Project approved · %s / %s", source.ProviderSlug, source.FolderName))
+		ui.PrintInfo(`Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'bwenv login | source' (Fish) to load variables.`)
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — approve + export.
-		_, _, err := envrc.AllowAndExport()
+		_, _, err := export.AllowAndExport()
 		if err != nil {
 			ui.PrintError("Allow failed", err)
 			os.Exit(1)
@@ -304,17 +340,12 @@ func runAllow() {
 // bwenv shell wrapper, the unsets are eval'd automatically so
 // variables are cleared from the current shell.
 func runDisallow() {
-	varNames, err := envrc.DisallowAndUnset()
+	varNames, err := export.DisallowAndUnset()
 	if err != nil {
 		ui.PrintError("Disallow failed", err)
 		os.Exit(1)
 	}
-	if len(varNames) > 0 {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked — %d variable(s) cleared\n",
-			ui.E("⛔\ufe0f", "[blocked]"), len(varNames))
-	} else {
-		fmt.Fprintf(os.Stderr, "  %s .envrc blocked\n", ui.E("⛔\ufe0f", "[blocked]"))
-	}
+	ui.PrintSuccess(fmt.Sprintf("Project disabled · %d variables cleared", len(varNames)))
 }
 
 // runExamples prints curated, copy-paste ready examples for common flows.
@@ -403,22 +434,16 @@ func runExamples() {
 // to stdout. When called through the bwenv shell wrapper, the unsets are
 // eval'd automatically so variables are cleared from the current shell.
 func runRemove() {
-	removed, varNames, err := envrc.RemoveAndUnset()
+	removed, varNames, err := export.RemoveAndUnset()
 	if err != nil {
 		ui.PrintError("Remove failed", err)
 		os.Exit(1)
 	}
 
 	if removed {
-		if len(varNames) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s .envrc removed — %d variable(s) cleared\n",
-				ui.E("🗑️", "[removed]"), len(varNames))
-		} else {
-			fmt.Fprintf(os.Stderr, "  %s .envrc removed\n", ui.E("🗑️", "[removed]"))
-		}
+		ui.PrintSuccess(fmt.Sprintf("Project configuration removed · %d variables cleared", len(varNames)))
 	} else {
-		fmt.Fprintf(os.Stderr, "  %s No .envrc found in current directory\n",
-			ui.E("⚠️", "[!]"))
+		ui.PrintInfo("No project configuration found")
 	}
 }
 
@@ -438,28 +463,21 @@ func runLogout() {
 	}
 }
 
-// runLogin re-authenticates with the provider configured in .envrc and
-// re-exports secrets. This is the quick recovery path when a session expires.
+// runLogin re-authenticates with the provider configured for this project and
+// re-exports secrets into the current shell through the shell wrapper.
 //
 // Like runAllow, it operates in two modes:
-//   - TTY mode (direct invocation): shows a styled flow, authenticates,
-//     verifies folder access, and runs "direnv allow" — then tells the user
-//     to "cd ." to load secrets.
-//   - Pipe mode (via shell wrapper): authenticates, exports secrets + session
-//     token to stdout (eval'd by the wrapper), and runs "direnv allow".
+//   - TTY mode (without the shell wrapper): explains how to evaluate its output.
+//   - Pipe mode (via shell wrapper): exports secrets and the shell-local session.
 func runLogin() {
 	fi, _ := os.Stdout.Stat()
 	isTTY := (fi.Mode() & os.ModeCharDevice) != 0
 
 	if isTTY {
-		// Direct invocation in a terminal — show the interactive flow.
-		if err := ui.RunLoginFlow(Version); err != nil {
-			ui.PrintError("Login failed", err)
-			os.Exit(1)
-		}
+		ui.PrintInfo(`Run 'eval "$(bwenv login)"' (Bash/Zsh) or 'bwenv login | source' (Fish) to set the session in this shell.`)
 	} else {
 		// Pipe mode (via shell wrapper or manual eval) — authenticate + export.
-		_, _, err := envrc.LoginAndExport()
+		_, _, err := export.LoginAndExport()
 		if err != nil {
 			ui.PrintError("Login failed", err)
 			os.Exit(1)
@@ -468,16 +486,98 @@ func runLogin() {
 }
 
 func runRefresh() {
-	providerName, synced, err := envrc.Refresh()
+	providerName, synced, err := export.Refresh()
 	if err != nil {
 		ui.PrintError("Refresh failed", err)
 		os.Exit(1)
 	}
-	if synced {
-		ui.PrintSuccess(providerName + " synced; direnv reload requested")
-		return
+	if activator, aerr := activation.ForProject(); aerr == nil {
+		if emitter, ok := activator.(activation.Emitter); ok && emitter.EmitsExports() {
+			info, _ := os.Stdout.Stat()
+			if info != nil && info.Mode()&os.ModeCharDevice == 0 {
+				if _, err := export.ActivateShell(parseShellFlag(os.Args[2:])); err != nil {
+					ui.PrintError("Refresh failed", err)
+					os.Exit(1)
+				}
+			} else {
+				ui.PrintInfo("Use the shell wrapper or evaluate bwenv refresh output to reload variables")
+			}
+		}
 	}
-	ui.PrintSuccess(providerName + " will refresh through direnv; no separate sync is available")
+	if synced {
+		ui.PrintSuccess(providerName + " synced")
+	} else {
+		ui.PrintSuccess(providerName + " refreshed")
+	}
+}
+
+// runActivate prepares the nearest project's activation artifact. It works from
+// nested subdirectories and is idempotent.
+func runActivate() {
+	backend, err := export.ActivateShell(parseShellFlag(os.Args[2:]))
+	if err != nil {
+		if errors.Is(err, provider.ErrSessionExpired) || errors.Is(err, provider.ErrNotAuthenticated) {
+			ui.PrintWarning("Session locked or expired · run bwenv login")
+		} else {
+			ui.PrintError("Activation failed", err)
+		}
+		os.Exit(1)
+	}
+	if backend != "shell" {
+		ui.PrintSuccess("Project activated · " + backend)
+	}
+}
+
+// runDeactivate revokes the nearest project's activation and prints "unset"
+// statements for the shell wrapper to eval, restoring the previous environment.
+func runDeactivate() {
+	varNames, err := export.DeactivateShell(parseShellFlag(os.Args[2:]))
+	if err != nil {
+		ui.PrintError("Deactivate failed", err)
+		os.Exit(1)
+	}
+	ui.PrintSuccess(fmt.Sprintf("Project deactivated · %d variables restored", len(varNames)))
+}
+
+// runRoot prints the nearest bwenv project root, or nothing when the current
+// directory is not inside a project. The native shell hook uses it to decide
+// when to activate and deactivate.
+func runRoot() {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		os.Exit(1)
+	}
+	if root != "" {
+		if len(os.Args) > 2 && os.Args[2] == "--shell-only" {
+			cfg, err := project.Load(root)
+			if err != nil || cfg.Activation.Mode != "shell" {
+				return
+			}
+		}
+		fmt.Println(root)
+	}
+}
+
+// runHook prints the native shell hook for the requested shell (or the shell in
+// $SHELL when omitted or "auto").
+func runHook(args []string) {
+	name := ""
+	for _, arg := range args[1:] {
+		if !strings.HasPrefix(arg, "-") {
+			name = arg
+			break
+		}
+	}
+	if name == "" || name == "auto" {
+		name = shell.DetectShell(os.Getenv("SHELL"))
+	}
+
+	snippet, err := shell.Hook(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Print(snippet)
 }
 
 // runStatus displays a comprehensive overview of the current bwenv state,
@@ -502,7 +602,7 @@ func runMigrate(args []string) {
 			dryRun = true
 		}
 	}
-	result, err := envrc.MigrateProject(dryRun)
+	result, err := direnv.Migrate(dryRun)
 	if err != nil {
 		ui.PrintError("Migration failed", err)
 		os.Exit(1)
@@ -569,6 +669,9 @@ func printUsage() {
 	fmt.Printf("  %s\n\n", headerStyle.Render("Setup:"))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("init       "), descStyle.Render(ui.E("🚀", "->")+` Interactive setup — pick provider, folder, generate .envrc`))
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("export     "), descStyle.Render(ui.E("📤", "->")+` Output env vars for .envrc (non-interactive)`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("activate   "), descStyle.Render(ui.E("⚡", "->")+` Make the project's activation artifact ready`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("deactivate "), descStyle.Render(ui.E("⛔", "->")+` Revoke activation and clear variables`))
+	fmt.Printf("    %s   %s\n", cmdStyle.Render("hook       "), descStyle.Render(ui.E("🪝", "->")+` Print a native shell hook (experimental; zsh, bash, fish)`))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Secret Management:"))
@@ -593,11 +696,16 @@ func printUsage() {
 	fmt.Printf("    %s   %s\n", cmdStyle.Render("version    "), descStyle.Render(ui.E("📋", "->")+` Show version`))
 	fmt.Println()
 
+	fmt.Printf("  %s\n\n", headerStyle.Render("Init flags:"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--activation"), descStyle.Render("Backend override: shell (default, experimental), direnv, mise (experimental); set default in config"))
+	fmt.Println()
+
 	fmt.Printf("  %s\n\n", headerStyle.Render("Export flags:"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--provider "), descStyle.Render("Secret provider: bitwarden, 1password"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder   "), descStyle.Render("Folder or vault name to load secrets from"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--folder-id"), descStyle.Render("Provider folder ID (optional — avoids folder lookup)"))
 	fmt.Printf("    %s   %s\n", flagStyle.Render("--items    "), descStyle.Render("Comma-separated item IDs (optional — load only specific items)"))
+	fmt.Printf("    %s   %s\n", flagStyle.Render("--quiet    "), descStyle.Render("Suppress export messages for automatic hooks"))
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", headerStyle.Render("Quick Start:"))
@@ -609,4 +717,13 @@ func printUsage() {
 	fmt.Println()
 
 	fmt.Printf("  %s\n\n", descStyle.Render("Aliases: load → export, clean → remove, test → status, lock → logout, deny → disallow, settings → config, auth → login"))
+}
+
+func parseShellFlag(args []string) string {
+	for i, arg := range args {
+		if arg == "--shell" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return shell.DetectShell(os.Getenv("SHELL"))
 }

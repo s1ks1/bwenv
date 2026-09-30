@@ -1,4 +1,4 @@
-package envrc
+package export
 
 // PER-12 stabilization: focused regression tests for the fast export path.
 //
@@ -11,6 +11,7 @@ package envrc
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +22,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -135,7 +140,7 @@ func TestShellQuoteSurvivesRealShells(t *testing.T) {
 	for _, sh := range shells {
 		for i, value := range values {
 			t.Run(fmt.Sprintf("%s/value_%d", sh.name, i), func(t *testing.T) {
-				script := sh.prefix + shellQuote(value) + `; printf '%s' "$BWENV_TEST_VAR"`
+				script := sh.prefix + shell.Quote(value) + `; printf '%s' "$BWENV_TEST_VAR"`
 				out, errOut, err := stabilityRunShell(t, sh.path, script)
 				if err != nil {
 					t.Fatalf("shell %s rejected quoted value %q: %v (stderr: %s)", sh.name, value, err, errOut)
@@ -170,18 +175,18 @@ func TestSanitizeKeyIsShellSafeAndIdempotent(t *testing.T) {
 	shPath, shErr := exec.LookPath("sh")
 	for _, key := range keys {
 		t.Run(fmt.Sprintf("key_%q", key), func(t *testing.T) {
-			got := sanitizeKey(key)
+			got := shell.SanitizeKey(key)
 			if !validIdent.MatchString(got) {
-				t.Fatalf("sanitizeKey(%q) = %q is not a valid POSIX identifier", key, got)
+				t.Fatalf("shell.SanitizeKey(%q) = %q is not a valid POSIX identifier", key, got)
 			}
-			if again := sanitizeKey(got); again != got {
-				t.Fatalf("sanitizeKey not idempotent: sanitizeKey(%q) = %q", got, again)
+			if again := shell.SanitizeKey(got); again != got {
+				t.Fatalf("sanitizeKey not idempotent: shell.SanitizeKey(%q) = %q", got, again)
 			}
 			if shErr != nil {
 				t.Logf("sh unavailable; skipping shell eval for %q", key)
 				return
 			}
-			script := "export " + got + "=" + shellQuote("v") + `; printf '%s' "$` + got + `"`
+			script := "export " + got + "=" + shell.Quote("v") + `; printf '%s' "$` + got + `"`
 			out, errOut, err := stabilityRunShell(t, shPath, script)
 			if err != nil {
 				t.Fatalf("generated identifier %q not eval-safe: %v (stderr: %s)", got, err, errOut)
@@ -226,16 +231,16 @@ func TestFastExportOutputIsEvalSafe(t *testing.T) {
 	sanitized := make([]string, 0, len(cases))
 	for _, c := range cases {
 		secrets = append(secrets, provider.Secret{Key: c.key, Value: c.value})
-		sanitized = append(sanitized, sanitizeKey(c.key))
+		sanitized = append(sanitized, shell.SanitizeKey(c.key))
 	}
 	provider.Register(&mockProvider{name: "Mock", secrets: secrets})
 
 	stabilityChdir(t, t.TempDir())
 	stdout, stderr, err := stabilityCaptureOutput(t, func() error {
-		return ExportWithFolderID("mock", "Folder", "folder-id", nil)
+		return ExportWithFolderID(context.Background(), "mock", "Folder", "folder-id", nil)
 	})
 	if err != nil {
-		t.Fatalf("ExportWithFolderID() returned error: %v (stderr: %s)", err, stderr)
+		t.Fatalf("ExportWithFolderID(context.Background(), ) returned error: %v (stderr: %s)", err, stderr)
 	}
 
 	// Build a script that evals the generated export lines and prints each
@@ -302,13 +307,13 @@ func TestFastExportDuplicateKeysLastWins(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
 
 			stdout, stderr, err := stabilityCaptureOutput(t, func() error {
-				return ExportWithFolderID("mock", "Folder", "folder-id", nil)
+				return ExportWithFolderID(context.Background(), "mock", "Folder", "folder-id", nil)
 			})
 			if err != nil {
-				t.Fatalf("ExportWithFolderID() returned error: %v (stderr: %s)", err, stderr)
+				t.Fatalf("ExportWithFolderID(context.Background(), ) returned error: %v (stderr: %s)", err, stderr)
 			}
 
-			key := sanitizeKey(tc.secrets[0].Key)
+			key := shell.SanitizeKey(tc.secrets[0].Key)
 			lines := strings.Count(stdout, "export "+key+"=")
 			if lines != len(tc.secrets) {
 				t.Fatalf("expected %d export lines for duplicate key %q, got %d:\n%s", len(tc.secrets), key, lines, stdout)
@@ -346,19 +351,18 @@ func TestFastExportCanonicalFolderRoundTrip(t *testing.T) {
 	for i, name := range names {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
-			if err := Generate(Config{
+			if err := direnv.Install(activation.Config{
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				FolderID:     "folder-id-123",
-				Session:      "tok",
 				Version:      testVersion,
 			}); err != nil {
-				t.Fatalf("Generate() with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.Install() with folder %q returned error: %v", name, err)
 			}
 
-			_, folder, folderID, _, err := ParseEnvrcConfigWithFolderID()
+			_, folder, folderID, _, err := direnv.ParseConfigWithFolderID()
 			if err != nil {
-				t.Fatalf("ParseEnvrcConfigWithFolderID() with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.ParseConfigWithFolderID() with folder %q returned error: %v", name, err)
 			}
 			if folder != name {
 				t.Errorf("canonical roundtrip: got folder %q, want %q", folder, name)
@@ -391,20 +395,20 @@ func TestFastExportLegacyFolderRoundTrip(t *testing.T) {
 	for i, name := range names {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			stabilityChdir(t, t.TempDir())
-			if err := Generate(Config{
+			if err := direnv.Install(activation.Config{
 				ProviderSlug: "bitwarden",
 				FolderName:   name,
 				Version:      testVersion,
 			}); err != nil {
-				t.Fatalf("Generate() legacy with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.Install() legacy with folder %q returned error: %v", name, err)
 			}
 
-			_, folder, _, err := ParseEnvrcConfig()
+			_, folder, _, err := direnv.ParseConfig()
 			if err != nil {
-				t.Fatalf("ParseEnvrcConfig() legacy with folder %q returned error: %v", name, err)
+				t.Fatalf("direnv.ParseConfig() legacy with folder %q returned error: %v", name, err)
 			}
 			if folder != name {
-				t.Skipf("BUG: legacy .envrc folder roundtrip lost data: %q -> %q (header is split on '|' at envrc.go ParseEnvrcConfigWithFolderID)", name, folder)
+				t.Skipf("BUG: legacy .envrc folder roundtrip lost data: %q -> %q (header is split on '|' at direnv.go ParseConfigWithFolderID)", name, folder)
 			}
 		})
 	}
@@ -419,13 +423,13 @@ func TestFastExportSessionFailureIsGraceful(t *testing.T) {
 		stabilityChdir(t, t.TempDir())
 
 		_, _, err := stabilityCaptureOutput(t, func() error {
-			return ExportWithFolderID("bitwarden", "Folder", "folder-id", nil)
+			return ExportWithFolderID(context.Background(), "bitwarden", "Folder", "folder-id", nil)
 		})
 		if err == nil {
 			t.Fatal("expected graceful error when BW_SESSION is empty/expired")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "session expired or not active") {
+		if !strings.Contains(msg, "session expired") {
 			t.Errorf("error should explain the session state, got: %v", err)
 		}
 		if !strings.Contains(msg, "bwenv login") {
@@ -440,7 +444,7 @@ func TestFastExportSessionFailureIsGraceful(t *testing.T) {
 		stabilityChdir(t, t.TempDir())
 
 		_, stderr, err := stabilityCaptureOutput(t, func() error {
-			return ExportWithFolderID("bitwarden", "Folder", "folder-id", nil)
+			return ExportWithFolderID(context.Background(), "bitwarden", "Folder", "folder-id", nil)
 		})
 		if err == nil {
 			t.Fatal("expected error when the session is rejected by the provider CLI")

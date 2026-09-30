@@ -12,20 +12,27 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/config"
-	"github.com/s1ks1/bwenv/v2/internal/envrc"
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
+	"github.com/s1ks1/bwenv/v3/internal/activation/direnv"
+	activationshell "github.com/s1ks1/bwenv/v3/internal/activation/shell"
+	"github.com/s1ks1/bwenv/v3/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/export"
+	"github.com/s1ks1/bwenv/v3/internal/project"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
-// RunInitFlow executes the full interactive initialization process:
+// RunInitFlow executes the full interactive initialization process for the
+// given activation backend. The saved default is used for new projects;
+// existing project metadata and explicit --activation take precedence.
 //  1. Display a welcome banner with version info.
 //  2. Let the user pick a secret provider (Bitwarden, 1Password, etc.).
 //  3. Authenticate with the chosen provider (unlock vault / sign in).
@@ -36,10 +43,36 @@ import (
 //  8. Automatically run "direnv allow" to approve the .envrc.
 //
 // Returns an error if any step fails or if the user cancels.
-func RunInitFlow(version string) error {
+func RunInitFlow(version string, activationMode string) error {
+	ctx := context.Background()
 	const totalSteps = 7
 
 	PrintBanner(version)
+	userCfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if activationMode == "" {
+		activationMode = userCfg.ActivationMode
+		if cfg, err := project.Load("."); err == nil {
+			activationMode = cfg.Activation.Mode
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+
+	activator, err := activation.Get(activationMode)
+	if err != nil {
+		return err
+	}
+	activationMode = activator.Name()
+	if !activator.Available() {
+		return fmt.Errorf("%s is not installed; install it or select --activation shell", activationMode)
+	}
+	PrintInfo("Activation: " + activationMode + " — change the default with 'bwenv config'; override this project with --activation")
+	if activationMode == "shell" {
+		PrintInfo("Native shell hook (experimental): no direnv or mise required.")
+	}
 
 	// -- Step 1: Gather all registered providers --
 	allProviders := provider.All()
@@ -75,7 +108,7 @@ func RunInitFlow(version string) error {
 		result := finalModel.(ProviderPickerModel)
 		if result.Cancelled() {
 			printCancelled()
-			os.Exit(0)
+			return ErrCancelled
 		}
 
 		chosenProvider = result.Chosen()
@@ -87,11 +120,24 @@ func RunInitFlow(version string) error {
 		PrintSuccess(fmt.Sprintf("Selected: %s", chosenProvider.Name()))
 	}
 
+	authProvider, err := provider.AsAuthenticator(chosenProvider)
+	if err != nil {
+		return fmt.Errorf("provider %s is not usable: %w", chosenProvider.Name(), err)
+	}
+	folderLister, err := provider.AsFolderLister(chosenProvider)
+	if err != nil {
+		return fmt.Errorf("provider %s is not usable: %w", chosenProvider.Name(), err)
+	}
+	fetcher, err := provider.AsSecretFetcher(chosenProvider)
+	if err != nil {
+		return fmt.Errorf("provider %s is not usable: %w", chosenProvider.Name(), err)
+	}
+
 	// -- Step 3: Authenticate with the provider --
 	PrintStep(2, totalSteps, E("🔓", "[>]")+" Authenticating with "+chosenProvider.Name()+"...")
 	fmt.Println()
 
-	session, err := chosenProvider.Authenticate()
+	session, err := authProvider.Authenticate(ctx)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -102,7 +148,7 @@ func RunInitFlow(version string) error {
 	// -- Step 4: Fetch the folder list --
 	PrintStep(3, totalSteps, E("📂", "[>]")+" Fetching folders from "+chosenProvider.Name()+"...")
 
-	folders, err := chosenProvider.ListFolders(session)
+	folders, err := folderLister.ListFolders(ctx, session)
 	if err != nil {
 		return fmt.Errorf("failed to list folders: %w", err)
 	}
@@ -129,7 +175,7 @@ func RunInitFlow(version string) error {
 	folderResult := finalFolderModel.(FolderPickerModel)
 	if folderResult.Cancelled() {
 		printCancelled()
-		os.Exit(0)
+		return ErrCancelled
 	}
 
 	chosenFolder := folderResult.Chosen()
@@ -148,7 +194,7 @@ func RunInitFlow(version string) error {
 	var itemIDs []string
 	var itemNames []string
 
-	items, listErr := chosenProvider.ListItems(session, *chosenFolder)
+	items, listErr := folderLister.ListItems(ctx, session, *chosenFolder)
 	if listErr != nil {
 		PrintWarning(fmt.Sprintf("Could not list items: %v", listErr))
 		PrintInfo("All items in the folder will be loaded instead.")
@@ -174,7 +220,7 @@ func RunInitFlow(version string) error {
 			secretResult := finalSecretModel.(SecretPickerModel)
 			if secretResult.Cancelled() {
 				printCancelled()
-				os.Exit(0)
+				return ErrCancelled
 			}
 
 			chosenItems := secretResult.Selected()
@@ -197,13 +243,13 @@ func RunInitFlow(version string) error {
 
 	var varNames []string
 	if len(itemIDs) > 0 {
-		varNames, err = envrc.PreviewSecretsByIDs(chosenProvider, session, *chosenFolder, itemIDs)
+		varNames, err = export.PreviewSecretsByIDs(ctx, fetcher, session, *chosenFolder, itemIDs)
 	} else {
-		varNames, err = envrc.PreviewSecrets(chosenProvider, session, *chosenFolder)
+		varNames, err = export.PreviewSecrets(ctx, fetcher, session, *chosenFolder)
 	}
 	if err != nil {
 		PrintWarning(fmt.Sprintf("Could not preview secrets: %v", err))
-		PrintInfo("The .envrc will still be generated — secrets will load when direnv runs it.")
+		PrintInfo("Project configuration will still be generated; run bwenv login to load secrets.")
 		fmt.Println()
 	} else if len(varNames) == 0 {
 		PrintWarning("No secrets found")
@@ -215,41 +261,31 @@ func RunInitFlow(version string) error {
 	}
 
 	// -- Step 8: Generate the .envrc file --
-	PrintStep(7, totalSteps, E("📝", "[>]")+" Generating .envrc...")
+	PrintStep(7, totalSteps, E("📝", "[>]")+" Configuring "+activationMode+" activation...")
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("could not determine current directory: %w", err)
 	}
 
-	envrcPath := filepath.Join(cwd, ".envrc")
-
-	if _, statErr := os.Stat(envrcPath); statErr == nil {
-		PrintWarning("Existing .envrc will be overwritten")
-	}
-
-	err = envrc.Generate(envrc.Config{
+	err = activator.Install(activation.Config{
 		ProviderSlug: chosenProvider.Slug(),
 		FolderName:   chosenFolder.Name,
 		FolderID:     chosenFolder.ID,
-		Session:      session,
 		Version:      version,
 		ItemIDs:      itemIDs,
 		ItemNames:    itemNames,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to write .envrc: %w", err)
+		return fmt.Errorf("failed to configure %s activation: %w", activationMode, err)
 	}
 
-	PrintSuccess(".envrc created")
+	PrintSuccess(activationMode + " activation configured")
 
-	// -- Step 8: Allow direnv so secrets load automatically --
-	// Now that DIRENV_LOG_FORMAT="" is set globally (step 9 below) or was
-	// already set from a previous init, we can safely allow the .envrc.
-	// When the user's prompt returns, direnv's hook will silently load it.
-	if err := envrc.AllowDirenv(); err != nil {
-		// Non-fatal — direnv might not be installed.
-		_ = err
+	// -- Step 8: Approve the activation artifact so secrets load automatically --
+	// When the user's prompt returns, the backend hook will load it silently.
+	if err := activator.Approve(); err != nil {
+		PrintWarning("Activation approval failed: " + err.Error())
 	}
 
 	// -- Step 9: Shell integration --
@@ -257,13 +293,20 @@ func RunInitFlow(version string) error {
 	// wrapper function into the user's shell RC file. The wrapper enables
 	// commands like "bwenv allow", "bwenv disallow", "bwenv remove" to
 	// modify the current shell's environment directly.
-	userCfg, _ := config.Load()
+
 	rcFile := ""
 	rcModified := false
+	if activationMode == "shell" {
+		if rc, err := shell.DetectRC(); err == nil {
+			rcFile = shell.ShortenHomePath(rc)
+			rcModified = true
+		}
+	}
 
-	// 9a: Silence direnv globally (unless user wants direnv output).
-	if !userCfg.ShowDirenvOutput {
-		silenceModified, silenceRC, silenceErr := envrc.SilenceDirenvGlobally()
+	// 9a: Silence direnv globally (unless user wants direnv output). This is
+	// direnv-specific; other backends have no equivalent noise.
+	if activationMode == "direnv" && !userCfg.ShowDirenvOutput {
+		silenceModified, silenceRC, silenceErr := direnv.SilenceGlobally()
 		if silenceErr != nil {
 			PrintInfo("Could not configure global direnv silence: " + silenceErr.Error())
 		} else if silenceModified {
@@ -271,12 +314,12 @@ func RunInitFlow(version string) error {
 			rcFile = silenceRC
 			rcModified = true
 		}
-	} else {
+	} else if activationMode == "direnv" {
 		PrintInfo("Direnv output is visible (configured via 'bwenv config')")
 	}
 
 	// 9b: Install the bwenv shell wrapper function.
-	wrapperModified, wrapperRC, wrapperErr := envrc.InstallShellWrapper()
+	wrapperModified, wrapperRC, wrapperErr := shell.InstallWrapper()
 	if wrapperErr != nil {
 		PrintInfo("Could not install shell wrapper: " + wrapperErr.Error())
 	} else if wrapperModified {
@@ -287,10 +330,12 @@ func RunInitFlow(version string) error {
 
 	// -- Done! Show the final success summary --
 	fmt.Println()
-	printSuccessSummary(chosenProvider, chosenFolder, itemNames, cwd, varNames, rcModified, rcFile)
+	printSuccessSummary(chosenProvider, chosenFolder, itemNames, cwd, varNames, rcModified, rcFile, activationMode)
 
 	return nil
 }
+
+var ErrCancelled = errors.New("cancelled")
 
 // printCancelled shows a clean cancellation message and exits.
 func printCancelled() {
@@ -376,7 +421,7 @@ func printNoProvidersHelp(allProviders []provider.Provider) {
 
 // printSuccessSummary displays the final success box after .envrc generation.
 // Designed to be concise — one box with all info, clear next step.
-func printSuccessSummary(p provider.Provider, folder *provider.Folder, itemNames []string, cwd string, varNames []string, rcModified bool, rcFile string) {
+func printSuccessSummary(p provider.Provider, folder *provider.Folder, itemNames []string, cwd string, varNames []string, rcModified bool, rcFile string, activationMode string) {
 	summaryLines := []string{
 		E("✅", "[OK]") + " Setup complete!",
 		"",
@@ -396,7 +441,8 @@ func printSuccessSummary(p provider.Provider, folder *provider.Folder, itemNames
 
 	summaryLines = append(summaryLines,
 		fmt.Sprintf("  Variables:  %d secret(s)", len(varNames)),
-		fmt.Sprintf("  Location:   %s/.envrc", ShortenHomePath(cwd)),
+		fmt.Sprintf("  Location:   %s/.bwenv.toml", ShortenHomePath(cwd)),
+		fmt.Sprintf("  Activation: %s", activationMode),
 	)
 
 	PrintBoxSuccess(summaryLines...)
@@ -413,32 +459,20 @@ func printSuccessSummary(p provider.Provider, folder *provider.Folder, itemNames
 			activateCmd)
 
 		subHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
-			Render("  After that, secrets load automatically when you cd into this directory.")
+			Render("  Then run 'bwenv login' to load secrets into this shell.")
 		fmt.Fprintln(os.Stderr, subHint)
 
 		wrapperHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
 			Render("  Commands like bwenv allow/disallow/remove manage variables directly.")
 		fmt.Fprintln(os.Stderr, wrapperHint)
 	} else {
-		// RC was already set up — everything works out of the box.
+		// The session produced during init belongs to this process, not the shell.
 		hint := lipgloss.NewStyle().Foreground(ColorMuted).
-			Render("Secrets load automatically when you cd into this directory.")
+			Render("Run 'bwenv login' to authenticate and load secrets into this shell.")
 		fmt.Fprintf(os.Stderr, "  %s\n", hint)
-
-		triggerHint := lipgloss.NewStyle().Foreground(ColorMuted).Italic(true).
-			Render("  To load now: cd .")
-		fmt.Fprintln(os.Stderr, triggerHint)
 	}
 
-	// If direnv is missing, show a warning.
-	if _, err := exec.LookPath("direnv"); err != nil {
-		fmt.Println()
-		PrintBoxWarning(
-			E("⚠️", "[!]")+" direnv is not installed",
-			"",
-			"   Install: https://direnv.net/",
-		)
-	}
+	printActivationInstructions(activationMode)
 
 	fmt.Println()
 }
@@ -449,4 +483,37 @@ func formatProviderName(name string) string {
 		Bold(true).
 		Foreground(ColorSecondary).
 		Render(name)
+}
+
+func printActivationInstructions(mode string) {
+	name := activationshell.DetectShell(os.Getenv("SHELL"))
+	switch mode {
+	case "shell":
+		PrintInfo("Recommended for Bash/Zsh/Fish: native hook, no additional CLI required.")
+		if name == "fish" {
+			PrintInfo("Manual hook setup: bwenv hook fish | source")
+		} else {
+			PrintInfo("Manual hook setup: eval \"$(bwenv hook " + name + ")\"")
+		}
+		PrintInfo("After bwenv init, source the displayed shell RC file or open a new terminal, then run 'bwenv login'.")
+	case "direnv", "mise":
+		PrintInfo("Install " + mode + " and enable its shell hook once in your shell RC file:")
+		if name == "fish" {
+			command := "direnv hook fish | source"
+			if mode == "mise" {
+				command = "mise activate fish | source"
+			}
+			PrintInfo(command)
+		} else {
+			command := "direnv hook " + name
+			if mode == "mise" {
+				command = "mise activate " + name
+			}
+			PrintInfo("eval \"$(" + command + ")\"")
+		}
+		PrintInfo("Open a new terminal or source your RC file; run 'bwenv login' in the project.")
+		if mode == "mise" {
+			PrintInfo("Trust the project once: mise trust")
+		}
+	}
 }

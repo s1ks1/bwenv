@@ -14,6 +14,9 @@ import (
 // Config holds all user-configurable preferences for bwenv.
 // These settings are persisted to disk and loaded on every invocation.
 type Config struct {
+	// ActivationMode is the default hook for new projects.
+	ActivationMode string `json:"activation_mode"`
+
 	// ShowEmoji controls whether emoji characters are displayed in output.
 	// When false, emoji are replaced with plain-text equivalents.
 	// Default: true
@@ -34,6 +37,7 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
+		ActivationMode:    "shell",
 		ShowEmoji:         true,
 		ShowDirenvOutput:  false,
 		ShowExportSummary: true,
@@ -107,6 +111,9 @@ func Load() (Config, error) {
 		return DefaultConfig(), fmt.Errorf("could not parse config: %w", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return DefaultConfig(), err
+	}
 	cached = &cfg
 	return cfg, nil
 }
@@ -114,6 +121,12 @@ func Load() (Config, error) {
 // Save writes the config to disk, creating the config directory if needed.
 // It also invalidates the cache so the next Load() reads from disk.
 func Save(cfg Config) error {
+	if cfg.ActivationMode == "" {
+		cfg.ActivationMode = "shell"
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -182,4 +195,13 @@ func Emoji(emoji string, fallback string) string {
 		return emoji
 	}
 	return fallback
+}
+
+func (cfg Config) Validate() error {
+	switch cfg.ActivationMode {
+	case "shell", "direnv", "mise":
+		return nil
+	default:
+		return fmt.Errorf("invalid activation_mode %q; choose shell, direnv, or mise", cfg.ActivationMode)
+	}
 }

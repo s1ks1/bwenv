@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.0.0 - Unreleased
+
+- Mise uses quiet exports during automatic evaluation, avoiding startup warnings and repeated summaries on every prompt; explicit login/export commands retain diagnostics.
+
+- Unified compact command and hook messages; reloads after login no longer repeat unchanged load summaries. Interactive failures have one owner, direnv status chatter is filtered, and logout no longer repeats its results.
+
+- Mise sources secrets after tool activation (`tools = true`), avoiding recursion through Node shims. Locked vaults leave tool activation available for login, and subprocess pipe waits are bounded after cancellation.
+
+- Existing shell wrappers are upgraded to evaluate `bwenv login` automatically; activation failures are concise and are not retried on every prompt until the session or project changes.
+
+- New projects default to native shell activation; `bwenv config` saves a default choice of shell, direnv, or mise. Existing project modes remain authoritative.
+- Init prints the selected backend and required shell setup steps. Native and mise backends remain experimental.
+- Fixed hook argument parsing, project switching, environment restoration, activation retries, and mise registration, canonical metadata, relative paths and config preservation.
+- Validated cached unset names and runtime state, tightened project metadata to mode 0600, and surfaced approval failures.
+
 ## v2.4.1 - 2026-09-27
 
 ### Fixed
