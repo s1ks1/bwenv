@@ -3,6 +3,7 @@ package bitwarden
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/s1ks1/bwenv/v3/internal/process"
@@ -44,5 +45,25 @@ func TestMissingSelectedItemIsTyped(t *testing.T) {
 	_, err := (&Bitwarden{Runner: runner}).GetSecretsByItemIDs(context.Background(), "s", provider.Folder{ID: "f", Name: "F"}, []string{"missing"})
 	if !errors.Is(err, provider.ErrItemNotFound) {
 		t.Fatalf("error = %v, want ErrItemNotFound", err)
+	}
+}
+
+func TestProviderErrorsNeverRenderPayloadsOrRunnerSecrets(t *testing.T) {
+	const sensitive = "fixture-secret-session-do-not-print"
+	cause := errors.New(sensitive)
+	for _, runner := range []outputRunner{
+		{stdout: []byte(sensitive)},
+		{stdout: []byte(sensitive), err: cause},
+		{stdout: []byte(`[{"id":{"` + sensitive + `":"unexpected"}}]`)},
+	} {
+		b := &Bitwarden{Runner: runner}
+		_, err := b.ListFolders(context.Background(), sensitive)
+		if err == nil || strings.Contains(err.Error(), sensitive) {
+			t.Fatalf("unsafe provider error: %v", err)
+		}
+	}
+	b := &Bitwarden{Runner: outputRunner{err: cause}}
+	if err := b.Lock(context.Background()); err == nil || strings.Contains(err.Error(), sensitive) || !errors.Is(err, cause) {
+		t.Fatalf("unsafe lock error: %v", err)
 	}
 }

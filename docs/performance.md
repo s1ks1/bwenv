@@ -68,3 +68,10 @@ folder ID. All numbers are local observations, not CI gates.
 
 The CI gate should assert process counts and output safety. Wall-clock timing
 is recorded for local comparison, not used as a pass/fail threshold.
+
+## v3 measurement protocol
+
+Use `scripts/measure-performance.py` with an explicitly selected development
+project and authenticated session. See [release readiness](release-readiness.md)
+for first-request versus warm definitions and the secret-free report format.
+New v3 real-vault results remain pending; fixture measurements are not substitutes.

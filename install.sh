@@ -103,7 +103,7 @@ get_latest_version() {
     fi
 }
 
-# -- Verify checksum (if checksums.txt is available) --
+# -- Verify checksum (required before installation) --
 verify_checksum() {
     archive_path="$1"
     archive_name="$2"
@@ -112,18 +112,12 @@ verify_checksum() {
     CHECKSUMS_URL="https://github.com/${GITHUB_REPO}/releases/download/${version}/checksums.txt"
 
     info "Verifying checksum..."
-    CHECKSUMS=$(fetch "$CHECKSUMS_URL" 2>/dev/null || true)
-
-    if [ -z "$CHECKSUMS" ]; then
-        warn "Checksums not available — skipping verification"
-        return
-    fi
-
-    EXPECTED=$(echo "$CHECKSUMS" | grep "$archive_name" | awk '{print $1}')
-    if [ -z "$EXPECTED" ]; then
-        warn "No checksum found for $archive_name — skipping verification"
-        return
-    fi
+    CHECKSUMS=$(fetch "$CHECKSUMS_URL" 2>/dev/null) || error "Could not download required checksums"
+    EXPECTED=$(printf '%s\n' "$CHECKSUMS" | awk -v name="$archive_name" '
+        NF == 2 && ($2 == name || $2 == "*" name) { count++; hash=tolower($1) }
+        END { if (count == 1) print hash; else exit 1 }
+    ') || error "Expected exactly one checksum for $archive_name"
+    printf '%s\n' "$EXPECTED" | grep -Eq '^[[:xdigit:]]{64}$' || error "Invalid SHA256 checksum for $archive_name"
 
     # Compute actual checksum.
     if command -v sha256sum >/dev/null 2>&1; then
@@ -131,8 +125,7 @@ verify_checksum() {
     elif command -v shasum >/dev/null 2>&1; then
         ACTUAL=$(shasum -a 256 "$archive_path" | awk '{print $1}')
     else
-        warn "No sha256sum or shasum found — skipping checksum verification"
-        return
+        error "No sha256sum or shasum found; refusing unverified installation"
     fi
 
     if [ "$EXPECTED" = "$ACTUAL" ]; then

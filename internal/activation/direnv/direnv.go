@@ -71,49 +71,29 @@ func Allow() error {
 	if err := EnsureLoggingConfig(); err != nil {
 		return fmt.Errorf("configure direnv output: %w", err)
 	}
-	if _, err := exec.LookPath("direnv"); err != nil {
-		return fmt.Errorf("direnv not found in PATH")
-	}
-
-	cmd := exec.Command("direnv", "allow")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard // Suppress "direnv:" messages
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("'direnv allow' failed: %w", err)
-	}
-
-	return nil
+	return runControl(context.Background(), "allow")
 }
 
-// Disallow runs "direnv deny" in the current directory to block the .envrc.
-func Disallow() error {
+// Disallow revokes the current project's approval.
+func Disallow() error { return runControl(context.Background(), "deny") }
+
+// Reload invalidates direnv's loaded environment.
+func Reload() error { return runControl(context.Background(), "reload") }
+
+func runControl(ctx context.Context, action string) error {
 	if _, err := exec.LookPath("direnv"); err != nil {
-		return fmt.Errorf("direnv not found in PATH")
+		return fmt.Errorf("direnv is not installed; install it before managing project activation")
 	}
-
-	cmd := exec.Command("direnv", "deny")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard // Suppress "direnv:" messages
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("'direnv deny' failed: %w", err)
-	}
-
-	return nil
-}
-
-// Reload asks direnv to reload the current project's environment.
-func Reload() error {
-	if _, err := exec.LookPath("direnv"); err != nil {
-		return fmt.Errorf("direnv is not installed; install it before refreshing the environment")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "direnv", "reload")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd := exec.CommandContext(ctx, "direnv", action)
+	cmd.WaitDelay = time.Second
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("direnv could not reload the project environment; check the shell hook and .envrc approval: %w", err)
+		if ctx.Err() != nil {
+			return fmt.Errorf("direnv %s timed out or was cancelled; check direnv and try again: %w", action, ctx.Err())
+		}
+		return fmt.Errorf("direnv %s failed; check .envrc and project approval: %w", action, err)
 	}
 	return nil
 }

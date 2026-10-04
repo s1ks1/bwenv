@@ -44,6 +44,9 @@ func ActivateShell(shellName string) (backend string, err error) {
 	if err := os.Chdir(root); err != nil {
 		return "", fmt.Errorf("enter project %s: %w", root, err)
 	}
+	if cfg, err := project.Load(".bwenv.toml"); err == nil && cfg.Activation.Disabled {
+		return "", fmt.Errorf("project is disabled; run bwenv allow or bwenv login")
+	}
 
 	activator, err := activation.ForProject()
 	if err != nil {
@@ -96,6 +99,19 @@ func DeactivateShell(shellName string) ([]string, error) {
 	return DisallowAndUnset()
 }
 
+// enterProjectRoot keeps explicit project commands consistent with activation
+// from nested directories. Legacy commands still diagnose a missing project.
+func enterProjectRoot() error {
+	root, err := project.FindRoot(".")
+	if err != nil {
+		return err
+	}
+	if root != "" {
+		return os.Chdir(root)
+	}
+	return nil
+}
+
 // AllowAndExport is the handler for `eval "$(bwenv allow)"`. It:
 //  1. Resolves the canonical project config (or a legacy direnv project).
 //  2. Authenticates (may prompt for password ONCE).
@@ -107,6 +123,9 @@ func AllowAndExport() (providerSlug string, folderName string, err error) {
 }
 
 func authAndExport() (providerSlug string, folderName string, err error) {
+	if err := enterProjectRoot(); err != nil {
+		return "", "", err
+	}
 	ctx := context.Background()
 
 	// Step 1: Resolve the project's activation backend and its secret source.
@@ -120,6 +139,12 @@ func authAndExport() (providerSlug string, folderName string, err error) {
 	}
 	providerSlug, folderName = source.ProviderSlug, source.FolderName
 
+	// direnv approval only trusts the file; it does not evaluate it. Fail before
+	// authentication or shell output, so wrappers cannot apply a partial result.
+	if err := activator.Approve(); err != nil {
+		return providerSlug, folderName, fmt.Errorf("%s approval failed: %w", activator.Name(), err)
+	}
+
 	// Step 2: Authenticate and export secrets. This is the one-and-only
 	// place the user may be prompted for their master password.
 	session, exportErr := exportSecretsForShell(ctx, providerSlug, folderName, source.FolderID, source.ItemIDs, true, currentShell(), activator.Name() == "shell", false)
@@ -132,16 +157,15 @@ func authAndExport() (providerSlug string, folderName string, err error) {
 	if session != "" {
 		fmt.Print(assignment("BW_SESSION", session, currentShell()))
 	}
+	// Successful authentication is the only operation that clears a shell lock.
+	for _, name := range []string{lockedVariable, "_BWENV_LOGIN_REQUIRED", "_bwenv_active_root", "_bwenv_attempted_root", "_bwenv_attempted_session"} {
+		fmt.Print(unassignment(name, currentShell()))
+	}
 
 	userCfg, _ := config.Load()
 	if activator.Name() == "direnv" && !userCfg.ShowDirenvOutput {
 		fmt.Print(assignment("DIRENV_LOG_FORMAT", "", currentShell()))
 		fmt.Print(assignment("DIRENV_WARN_TIMEOUT", "10m", currentShell()))
-	}
-
-	// Step 4: Approve the activation artifact after the session is available.
-	if approveErr := activator.Approve(); approveErr != nil {
-		output.Error(activator.Name()+" approval failed", approveErr)
 	}
 
 	return providerSlug, folderName, nil
@@ -164,6 +188,9 @@ func LoginAndExport() (providerSlug string, folderName string, err error) {
 // Refresh syncs providers that support it and asks the activation backend to
 // reload the current project's environment. Secret values are not written.
 func Refresh() (providerName string, synced bool, err error) {
+	if err := enterProjectRoot(); err != nil {
+		return "", false, err
+	}
 	ctx := context.Background()
 	activator, err := activation.ForProject()
 	if err != nil {
@@ -205,8 +232,8 @@ func Refresh() (providerName string, synced bool, err error) {
 // DIRENV_LOG_FORMAT and DIRENV_WARN_TIMEOUT are intentionally NOT unset
 // so direnv stays quiet.
 func DisallowAndUnset() ([]string, error) {
-	if state, ok := os.LookupEnv(stateVariable); ok {
-		return restoreState(state, currentShell())
+	if err := enterProjectRoot(); err != nil {
+		return nil, err
 	}
 	varNames := loadCachedVarNames()
 
@@ -216,6 +243,14 @@ func DisallowAndUnset() ([]string, error) {
 	}
 	if err := activator.Unapprove(); err != nil {
 		return varNames, err
+	}
+	if state, ok := os.LookupEnv(stateVariable); ok {
+		return restoreState(state, currentShell())
+	}
+	if emitter, ok := activator.(activation.Emitter); ok && emitter.EmitsExports() {
+		// Native activation always records originals. Without runtime state the
+		// project is already inactive; disk metadata must not erase restored values.
+		return nil, nil
 	}
 
 	// Print unset statements to stdout (captured by shell wrapper's eval).
@@ -229,8 +264,17 @@ func DisallowAndUnset() ([]string, error) {
 // RemoveAndUnset removes .envrc and .bwenv_vars, calls direnv deny,
 // AND prints "unset VAR" statements to stdout.
 func RemoveAndUnset() (bool, []string, error) {
+	if err := enterProjectRoot(); err != nil {
+		return false, nil, err
+	}
 	// Load cached variable names BEFORE deleting any files.
 	varNames := loadCachedVarNames()
+	if activator, err := activation.ForProject(); err == nil {
+		if emitter, ok := activator.(activation.Emitter); ok && emitter.EmitsExports() {
+			// Only runtime state owns native variables, including after disallow.
+			varNames = nil
+		}
+	}
 
 	removed, _, err := Remove()
 	if removed {
@@ -391,6 +435,11 @@ func exportSecretsForShell(ctx context.Context, providerSlug string, folderName 
 	if quiet || interactive || remember {
 		reportError = func(string, error) {}
 	}
+	if !interactive && os.Getenv(lockedVariable) != "" {
+		err := fmt.Errorf("%w: shell is locked; run bwenv login", provider.ErrNotAuthenticated)
+		reportError("Authentication failed", err)
+		return "", err
+	}
 	// Load user preferences to decide whether to show the export summary.
 	userCfg, _ := config.Load()
 
@@ -473,6 +522,18 @@ func exportSecretsForShell(ctx context.Context, providerSlug string, folderName 
 		return session, fmt.Errorf("failed to get secrets from folder %q: %w", folderName, err)
 	}
 
+	for _, secret := range secrets {
+		if strings.ContainsRune(secret.Value, 0) {
+			err := fmt.Errorf("provider returned a value containing a NUL byte")
+			reportError("Invalid variable", err)
+			return session, err
+		}
+		if !validName(shell.SanitizeKey(secret.Key)) {
+			err := fmt.Errorf("provider returned a reserved environment variable name")
+			reportError("Invalid variable", err)
+			return session, err
+		}
+	}
 	if remember {
 		state, err := rememberState(secrets)
 		if err != nil {
@@ -552,6 +613,9 @@ func PreviewSecretsByIDs(ctx context.Context, p provider.SecretFetcher, session 
 // display unset hints.
 // Returns (removed bool, varNames []string, err error).
 func Remove() (bool, []string, error) {
+	if err := enterProjectRoot(); err != nil {
+		return false, nil, err
+	}
 	activator, err := activation.ForProject()
 	if err != nil {
 		if _, statErr := os.Stat(".envrc"); statErr != nil {

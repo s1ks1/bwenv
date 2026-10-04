@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,9 @@ func TestHookRejectsUnsupportedShell(t *testing.T) {
 }
 
 func TestHookIgnoresLegacyCLIHelpOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX executable fixture; exercised on Linux/macOS")
+	}
 	for _, name := range []string{"bash", "zsh"} {
 		t.Run(name, func(t *testing.T) {
 			path, err := exec.LookPath(name)
@@ -138,5 +142,27 @@ print -r -- "${precmd_functions}"`
 	}
 	if !strings.Contains(got, "existing_fn") {
 		t.Errorf("precmd_functions lost pre-existing entries: %q", got)
+	}
+}
+
+func TestFishHookDoesNotApplyFailedActivationOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX fixture")
+	}
+	fish, err := exec.LookPath("fish")
+	if err != nil {
+		t.Skip("fish unavailable")
+	}
+	bin := t.TempDir()
+	fake := "#!/bin/sh\ncase \"$1\" in\nroot) printf '/fixture:fingerprint\\n' ;;\nactivate) printf 'set -gx API_KEY partial-output\\n'; exit 9 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "bwenv"), []byte(fake), 0755); err != nil {
+		t.Fatal(err)
+	}
+	hook, _ := Hook("fish")
+	script := hook + "\nset -gx API_KEY original\n_bwenv_prompt_hook\ntest \"$API_KEY\" = original; and test -z \"$_bwenv_active_root\"\n"
+	command := exec.Command(fish, "-c", script)
+	command.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if result, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("failed activation was evaluated: %v %s", err, result)
 	}
 }

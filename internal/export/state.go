@@ -14,6 +14,7 @@ import (
 )
 
 const stateVariable = "_BWENV_STATE"
+const lockedVariable = "_BWENV_LOCKED"
 
 type environmentState struct {
 	Root   string
@@ -30,7 +31,7 @@ func validateShell(name string) error {
 }
 
 func validName(name string) bool {
-	return name != "" && shell.SanitizeKey(name) == name && name != stateVariable
+	return name != "" && shell.SanitizeKey(name) == name && !strings.HasPrefix(name, "_BWENV_") && !strings.HasPrefix(name, "_bwenv_")
 }
 
 func assignment(name, value, shellName string) string {
@@ -58,8 +59,8 @@ func decodeState(encoded string) (environmentState, error) {
 		return state, fmt.Errorf("invalid bwenv environment state; start a fresh shell")
 	}
 	for name := range state.Values {
-		if !validName(name) {
-			return state, fmt.Errorf("invalid variable name in bwenv environment state")
+		if !validName(name) || (state.Values[name] != nil && strings.ContainsRune(*state.Values[name], 0)) {
+			return state, fmt.Errorf("invalid variable name or value in bwenv environment state")
 		}
 	}
 	return state, nil
@@ -82,7 +83,7 @@ func rememberState(secrets []provider.Secret) (string, error) {
 	}
 	for _, secret := range secrets {
 		name := shell.SanitizeKey(secret.Key)
-		if !validName(name) {
+		if !validName(name) || (state.Values[name] != nil && strings.ContainsRune(*state.Values[name], 0)) {
 			return "", fmt.Errorf("reserved environment variable %q", name)
 		}
 		if _, saved := state.Values[name]; !saved {

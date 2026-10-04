@@ -47,14 +47,14 @@ Built with [Go](https://go.dev/), [Bubble Tea](https://github.com/charmbracelet/
 
 `.env` files get committed by accident, tokens expire and break your workflow, and switching projects means manual copy-pasting. After login in a shell, bwenv fetches secrets live from your vault as you enter configured directories.
 
-The original bwenv was a collection of Makefile, Bash, and PowerShell scripts. The Go rewrite keeps behavior consistent across macOS, Linux, and Windows with a single static binary.
+The original bwenv was a collection of Makefile, Bash, and PowerShell scripts. The Go rewrite provides platform binaries for macOS, Linux and Windows; shell activation requires Bash, Zsh or Fish.
 
 ### Why bwenv for AI workflows?
 
-AI coding assistants read your project files and environment to understand context. bwenv keeps secrets out of that context:
+AI coding assistants read project files and may inherit their terminal's environment. bwenv keeps decrypted values out of generated project files; it does not isolate secrets from tools launched in a shell where those values are loaded.
 
-- **Nothing to leak** — secret values stay in your vault and are fetched live; keys and passwords are never written to disk.
-- **AI sees no secret values** — `.envrc` holds only a reference to `bwenv export`; provider session tokens stay in the current shell, not project files.
+- **No decrypted export files** — bwenv fetches values live and does not cache decrypted exports on disk.
+- **References in project files** — `.envrc` holds an activation command; provider session tokens stay in the current shell, not project files.
 - **Available in the shell** — secrets load as environment variables that AI tools inherit from your terminal.
 - **No `.env` to commit** — keep generated `.envrc` out of git; it contains only the activation command and is written with mode `0600`.
 - **Share context safely** — `.bwenv.toml` contains provider references, not credentials. Review custom `.envrc` code before sharing it.
@@ -65,7 +65,7 @@ AI coding assistants read your project files and environment to understand conte
 - **🔑 Multi-provider** — Bitwarden (`bw`) and 1Password (`op`)
 - **🎨 Interactive TUI** — folder browsing with search and filtering
 - **📁 Automatic `.envrc` generation** — direnv-compatible files that load secrets on `cd`
-- **🖥️ True cross-platform** — Linux, macOS, Windows (amd64 + arm64)
+- **🖥️ Cross-platform binaries** — Linux/macOS (amd64 + arm64), Windows (amd64)
 - **🔍 Smart diagnostics** — `bwenv doctor` checks setup safely; `bwenv status` shows full context
 - **⚙️ Configurable UI** — toggle emoji, direnv output, export summaries via `bwenv config`
 - **🔑 Quick re-auth** — `bwenv login` re-authenticates and updates `.envrc` in one step
@@ -106,7 +106,7 @@ eval "$(bwenv hook zsh)" # use bash for Bash
 
 Mise sources the generated script with `tools = true`, so Node-based password managers use the active runtime without recursing through mise shims. Automatic mise loads stay silent; the shell shows a login hint once per project entry when the vault is locked. Tool activation still completes; run `bwenv login` to unlock it or `bwenv export --project .` to see an error.
 
-For Fish: `bwenv hook fish | source`. For direnv, enable `eval "$(direnv hook zsh)"`; for mise, enable `eval "$(mise activate zsh)"` and run `mise trust` once per project. Add the relevant command to your RC file for future sessions. PowerShell users should select direnv; the native hook supports Bash/Zsh/Fish.
+For Fish: `bwenv hook fish | source`. For direnv, enable `eval "$(direnv hook zsh)"`; for mise, enable `eval "$(mise activate zsh)"` and run `mise trust` once per project. Add the relevant command to your RC file for future sessions. The native hook supports Bash/Zsh/Fish. On Windows use a supported shell (for example Git Bash/WSL); native PowerShell environment activation is not implemented.
 
 The native hook restores exported variables when leaving or switching projects, including previous values. It stores this state only in the shell environment, never on disk. Nested directories and repeated sourcing do not fetch secrets again. If activation fails, one concise warning is shown. Run `bwenv login` directly: the wrapper evaluates it automatically. Re-entering a project in the same shell reuses the session. A new shell or expired session requires login; session tokens are not saved on disk.
 
@@ -225,9 +225,18 @@ bwenv logout
 
 - **Bitwarden** — runs `bw lock`
 - **1Password** — runs `op signout`
-- Shows any lingering session environment variables and how to clear them
+- The shell wrapper restores native-hook originals, clears other managed variables and removes provider session variables, including `OP_SESSION_*` and `OP_SERVICE_ACCOUNT_TOKEN`, from this shell.
+- Automatic loads remain blocked in this shell until a successful `bwenv login` or `bwenv allow`. A failed provider lock still cleans the invoking shell and returns an error.
 
-Use it when you're done working with secrets or stepping away from your machine.
+`bwenv lock` is an alias. Cleanup applies to the invoking shell; other terminals and already-running child processes retain their own environments. Without the wrapper, the command prints a one-time setup hint. Removing a service-account token from this shell does not revoke the credential at the provider.
+
+### Disable a project
+
+```bash
+bwenv disallow
+```
+
+Native and mise projects store `activation.disabled = true` in `.bwenv.toml`, so re-entry and new terminals leave the project unloaded. This setting travels with that project file. Run `bwenv allow` or `bwenv login` to enable it again. Direnv keeps using its own local approval mechanism. Ordinary directory exit restores/unloads variables without disabling the project.
 
 ### Refresh provider data
 
@@ -235,7 +244,7 @@ Use it when you're done working with secrets or stepping away from your machine.
 bwenv refresh
 ```
 
-Refresh requires an active provider session and a working direnv hook. Bitwarden runs an explicit `bw sync` before direnv reloads the project environment. 1Password has no separate local sync step; direnv re-runs the export. `bwenv export` itself never syncs, so ordinary directory changes do not trigger a vault sync.
+Refresh requires an active provider session. Bitwarden runs an explicit `bw sync`; 1Password has no separate sync step. The chosen backend then reloads: native shell updates values directly, direnv reloads its environment, and mise upgrades its generated script for the next evaluation. Refresh preserves disabled projects. `bwenv export` itself never syncs.
 
 ### Check your setup
 

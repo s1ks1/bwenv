@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -342,5 +344,44 @@ func TestOnePasswordVaultFetchUsesSameItemPath(t *testing.T) {
 	secrets, problems := o.fetchItemsSecrets(context.Background(), nil, "v1")
 	if len(secrets) != 0 || len(problems) != 0 {
 		t.Fatalf("expected empty result for no items, got secrets=%v problems=%v", secrets, problems)
+	}
+}
+
+// Emulate signin chatter without allowing it onto executable stdout.
+type opSigninRunner struct{ streams process.IO }
+
+func (r *opSigninRunner) Run(_ context.Context, _ string, args []string, streams process.IO) (process.Result, error) {
+	if args[0] != "signin" {
+		return process.Result{}, errors.New("not signed in")
+	}
+	r.streams = streams
+	if streams.Stdout != nil {
+		_, _ = io.WriteString(streams.Stdout, "echo arbitrary-provider-output\n")
+	}
+	return process.Result{}, nil
+}
+func TestSigninOutputIsNotShellCode(t *testing.T) {
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "")
+	runner := &opSigninRunner{}
+	if _, err := (&OnePassword{Runner: runner}).Authenticate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if runner.streams.Stdout != io.Discard || runner.streams.Stdin != os.Stdin || runner.streams.Stderr != os.Stderr {
+		t.Fatal("signin must keep prompts interactive and discard executable stdout")
+	}
+}
+
+func TestItemErrorsNeverRenderSecretPayloadsOrRunnerText(t *testing.T) {
+	const sensitive = "fixture-secret-session-do-not-print"
+	for _, runner := range []*opStubRunner{
+		{stdout: map[string]string{"item-1": `{"fields":{"` + sensitive + `":"unexpected"}}`}},
+		{errs: map[string]error{"item-1": errors.New(sensitive)}},
+	} {
+		var warnings bytes.Buffer
+		o := &OnePassword{Runner: runner, Warnings: &warnings}
+		_, err := o.GetSecretsByItemIDs(context.Background(), "", provider.Folder{ID: "vault"}, []string{"item-1"})
+		if err == nil || strings.Contains(err.Error(), sensitive) || strings.Contains(warnings.String(), sensitive) {
+			t.Fatalf("unsafe item diagnostics: %v %q", err, warnings.String())
+		}
 	}
 }

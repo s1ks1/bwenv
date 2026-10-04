@@ -18,6 +18,7 @@ import (
 func TestWrapperInstallNotBlockedByHookMarker(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", "/bin/bash")
 
 	hookSnippet, err := Hook("bash")
@@ -55,6 +56,7 @@ func TestWrapperInstallNotBlockedByHookMarker(t *testing.T) {
 func TestHookInstallNotBlockedByWrapper(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", "/bin/bash")
 	chdir(t, t.TempDir())
 
@@ -84,6 +86,7 @@ func TestHookInstallNotBlockedByWrapper(t *testing.T) {
 func TestInstallWrapperIdempotent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", "/bin/bash")
 
 	rc := filepath.Join(home, ".bashrc")
@@ -108,6 +111,7 @@ func TestInstallWrapperIdempotent(t *testing.T) {
 func TestInstallWrapperRecognizesLegacyInstall(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", "/bin/bash")
 
 	legacy := "\n# bwenv shell integration — enables seamless secret management\n" +
@@ -126,6 +130,7 @@ func TestInstallWrapperRecognizesLegacyInstall(t *testing.T) {
 func TestLegacyWrapperUpgradesLoginWithoutEval(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", "/bin/bash")
 	legacy := "# bwenv shell integration — enables seamless secret management\nbwenv() {\ncase \"${1:-}\" in\nallow|disallow|deny|remove|clean|export|load) eval \"$(command bwenv \"$@\")\" ;;\n*) command bwenv \"$@\" ;;\nesac\n}\n"
 	rc := filepath.Join(home, ".bashrc")

@@ -22,11 +22,21 @@ const legacyWrapperMarker = "# bwenv shell integration — enables"
 // Commands that produce shell code (export/unset) are eval'd transparently, so
 // "bwenv allow" / "bwenv disallow" / "bwenv remove" / "bwenv login" can modify
 // the current shell's environment directly.
+const lockWrapperPOSIX = `
+    lock|logout)
+      local _bwenv_out
+      _bwenv_out="$(command bwenv "$@")"
+      local _bwenv_rc=$?
+      # Lock always emits validated cleanup, even if a provider fails.
+      [ -z "$_bwenv_out" ] || eval "$_bwenv_out"
+      return $_bwenv_rc
+      ;;
+`
 const wrapperBashZsh = `
 # bwenv shell wrapper — enables seamless secret management
-# Commands like allow/disallow/remove/login modify your shell environment directly.
+# Commands like allow/disallow/remove/login/lock modify your shell environment directly.
 bwenv() {
-  case "${1:-}" in
+  case "${1:-}" in` + lockWrapperPOSIX + `
     allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate|refresh)
       local _bwenv_out
       _bwenv_out="$(command bwenv "$@")"
@@ -42,12 +52,21 @@ bwenv() {
 `
 
 // wrapperFish is the shell function for fish shell.
+const lockWrapperFish = `
+    case lock logout
+      set -l _out "$(command bwenv $argv)"
+      set -l _rc $status
+      if test -n "$_out"
+        eval "$_out"
+      end
+      return $_rc
+`
 const wrapperFish = `
 # bwenv shell wrapper — enables seamless secret management
 function bwenv
-  switch $argv[1]
+  switch $argv[1]` + lockWrapperFish + `
     case allow disallow deny remove clean export load login auth activate deactivate refresh
-      set -l _out (command bwenv $argv | string collect)
+      set -l _out "$(command bwenv $argv)"
       set -l _rc $status
       if test $_rc -eq 0 -a -n "$_out"
         eval "$_out"
@@ -121,6 +140,14 @@ func InstallWrapper() (modified bool, filePath string, err error) {
 	}
 	if strings.Contains(string(content), wrapperMarker) || strings.Contains(string(content), legacyWrapperMarker) {
 		updated := string(content)
+		// Upgrade only the known wrapper body, leaving custom functions intact.
+		if !strings.Contains(updated, "    lock|logout)") {
+			updated = strings.Replace(updated, "  case \"${1:-}\" in\n    allow|", "  case \"${1:-}\" in"+lockWrapperPOSIX+"    allow|", 1)
+		}
+		if !strings.Contains(updated, "    case lock logout") {
+			updated = strings.Replace(updated, "  switch $argv[1]\n    case allow ", "  switch $argv[1]"+lockWrapperFish+"    case allow ", 1)
+		}
+		updated = strings.ReplaceAll(updated, "set -l _out (command bwenv $argv | string collect)", `set -l _out "$(command bwenv $argv)"`)
 		for _, old := range []string{
 			"allow|disallow|deny|remove|clean|export|load)",
 			"allow|disallow|deny|remove|clean|export|load|login|auth|activate|deactivate)",

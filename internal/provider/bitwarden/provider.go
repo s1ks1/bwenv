@@ -36,7 +36,7 @@ func (b *Bitwarden) run(ctx context.Context, args []string, streams process.IO) 
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return result, fmt.Errorf("%w: bw command exceeded its timeout", provider.ErrProviderTimeout)
 	}
-	return result, err
+	return result, provider.SafeError(err)
 }
 
 func (b *Bitwarden) runInteractive(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
@@ -44,7 +44,8 @@ func (b *Bitwarden) runInteractive(ctx context.Context, args []string, streams p
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	return runner.Run(ctx, "bw", args, streams)
+	result, err := runner.Run(ctx, "bw", args, streams)
+	return result, provider.SafeError(err)
 }
 
 // runWithSession runs bw with the session provided to the child via the
@@ -152,7 +153,7 @@ func (b *Bitwarden) Sync(ctx context.Context) error {
 	defer cancel()
 	_, err := runner.Run(ctx, "bw", []string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
-		return fmt.Errorf("Bitwarden sync failed: %w", err)
+		return fmt.Errorf("Bitwarden sync failed: %w", provider.SafeError(err))
 	}
 	return nil
 }
@@ -192,7 +193,7 @@ func (b *Bitwarden) ListFolders(ctx context.Context, session string) ([]provider
 
 	var raw []bwFolder
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("%w: %s while listing folders: %w", provider.ErrMalformedProviderResponse, bwUnexpected, err)
+		return nil, fmt.Errorf("%w: %s while listing folders: %w", provider.ErrMalformedProviderResponse, bwUnexpected, provider.SafeError(err))
 	}
 
 	folders := make([]provider.Folder, 0, len(raw))
@@ -316,7 +317,7 @@ func (b *Bitwarden) listItems(ctx context.Context, session string, folderID stri
 
 	var items []bwItem
 	if err := json.Unmarshal(out, &items); err != nil {
-		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", provider.ErrMalformedProviderResponse, bwUnexpected, folderID, err)
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", provider.ErrMalformedProviderResponse, bwUnexpected, folderID, provider.SafeError(err))
 	}
 
 	return items, nil

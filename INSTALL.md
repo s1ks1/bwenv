@@ -220,7 +220,7 @@ go install github.com/s1ks1/bwenv/v3@latest
 ### From Source (All Platforms)
 
 ```bash
-# Requires Go 1.22+ installed
+# Requires Go 1.25+ installed (release builds use Go 1.27.1)
 git clone https://github.com/s1ks1/bwenv.git
 cd bwenv
 make install    # Builds and installs to ~/.local/bin

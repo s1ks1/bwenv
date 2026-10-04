@@ -21,7 +21,7 @@ MODULE      := github.com/s1ks1/bwenv/v3
 # Version detection strategy:
 #   1. If the checkout is clean and exactly on a tag, use that tag
 #   2. Otherwise use the shared development fallback (keep in sync with the
-#      fallback in main.go init())
+#      fallback in internal/buildinfo.Resolve)
 # GoReleaser and CI override this via ldflags for real releases.
 VERSION     := $(shell git diff --quiet HEAD -- 2>/dev/null && git describe --tags --exact-match 2>/dev/null || echo "v3.0.0-dev")
 COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -89,7 +89,7 @@ endif
 build:
 	@echo "Building $(APP_NAME) $(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)$(EXE) .
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)$(EXE) ./cmd/bwenv
 	@echo "  ✓ $(BUILD_DIR)/$(APP_NAME)$(EXE)"
 
 # -- Run (build + execute) --
@@ -195,7 +195,7 @@ release: clean
 		echo "  Building $${os}/$${arch}..."; \
 		GOOS=$$os GOARCH=$$arch go build \
 			-ldflags "$(LDFLAGS)" \
-			-o "$(BUILD_DIR)/$${output_name}/$(APP_NAME)$${ext}" . || exit 1; \
+			-o "$(BUILD_DIR)/$${output_name}/$(APP_NAME)$${ext}" ./cmd/bwenv || exit 1; \
 		cp LICENSE "$(BUILD_DIR)/$${output_name}/"; \
 		cp README.md "$(BUILD_DIR)/$${output_name}/"; \
 		if [ "$$os" = "windows" ]; then \

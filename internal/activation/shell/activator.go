@@ -113,20 +113,10 @@ func (a *Activator) Remove() error { return nil }
 
 // Resolve reads the canonical project config for the provider source.
 func (a *Activator) Resolve() (activation.Source, error) {
-	cfg, err := project.Load(".bwenv.toml")
-	if err != nil {
-		return activation.Source{}, err
-	}
-	return activation.Source{
-		ProviderSlug: cfg.Provider,
-		FolderName:   cfg.Project.FolderName,
-		FolderID:     cfg.Project.FolderID,
-		ItemIDs:      cfg.Project.Items,
-	}, nil
+	return activation.ResolveFromProjectConfig()
 }
 
-// Approve, Unapprove and Reload are no-ops for the shell backend: there is no
-// external tool to control, and the hook reacts to prompt events.
-func (a *Activator) Approve() error   { return nil }
-func (a *Activator) Unapprove() error { return nil }
+// Approval is stored in canonical metadata; the hook reacts to config changes.
+func (a *Activator) Approve() error   { return project.SetDisabled(".bwenv.toml", false) }
+func (a *Activator) Unapprove() error { return project.SetDisabled(".bwenv.toml", true) }
 func (a *Activator) Reload() error    { return nil }

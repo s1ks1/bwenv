@@ -58,7 +58,7 @@ func (o *OnePassword) run(ctx context.Context, args []string, streams process.IO
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return result, fmt.Errorf("%w: op command exceeded its timeout", provider.ErrProviderTimeout)
 	}
-	return result, err
+	return result, provider.SafeError(err)
 }
 
 func (o *OnePassword) runInteractive(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
@@ -66,7 +66,8 @@ func (o *OnePassword) runInteractive(ctx context.Context, args []string, streams
 	if runner == nil {
 		runner = process.ExecRunner{}
 	}
-	return runner.Run(ctx, "op", args, streams)
+	result, err := runner.Run(ctx, "op", args, streams)
+	return result, provider.SafeError(err)
 }
 
 // init registers the 1Password provider in the global registry on startup.
@@ -127,7 +128,7 @@ func (o *OnePassword) Authenticate(ctx context.Context) (string, error) {
 
 	// Attempt interactive sign-in. The op CLI v2 will open a system
 	// authentication prompt (Touch ID, password dialog, etc.).
-	_, err := o.runInteractive(ctx, []string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr})
+	_, err := o.runInteractive(ctx, []string{"signin"}, process.IO{Stdin: os.Stdin, Stdout: io.Discard, Stderr: os.Stderr})
 	if err != nil {
 		return "", fmt.Errorf("%w: failed to sign in to 1Password: %w\n\nMake sure you have 'op' CLI v2+ installed and configured.\nSee: https://developer.1password.com/docs/cli/get-started/", provider.ErrNotAuthenticated, err)
 	}
@@ -161,7 +162,7 @@ func (o *OnePassword) ListFolders(ctx context.Context, session string) ([]provid
 
 	var vaults []opVault
 	if err := json.Unmarshal(result.Stdout, &vaults); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse vault list: %w", provider.ErrMalformedProviderResponse, err)
+		return nil, fmt.Errorf("%w: failed to parse vault list: %w", provider.ErrMalformedProviderResponse, provider.SafeError(err))
 	}
 
 	folders := make([]provider.Folder, 0, len(vaults))
@@ -257,7 +258,7 @@ func (o *OnePassword) listItemsInVault(ctx context.Context, vaultID string) ([]o
 
 	var items []opItem
 	if err := json.Unmarshal(result.Stdout, &items); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse item list: %w", provider.ErrMalformedProviderResponse, err)
+		return nil, fmt.Errorf("%w: failed to parse item list: %w", provider.ErrMalformedProviderResponse, provider.SafeError(err))
 	}
 
 	return items, nil
@@ -290,13 +291,13 @@ func (o *OnePassword) fetchItemsSecrets(ctx context.Context, itemIDs []string, v
 
 			result, err := o.run(ctx, args, process.IO{})
 			if err != nil {
-				problems[idx] = fmt.Sprintf("could not fetch item %q: %v", itemID, err)
+				problems[idx] = fmt.Sprintf("could not fetch item %q: %v", itemID, provider.SafeError(err))
 				return
 			}
 
 			var detail opItemDetail
 			if err := json.Unmarshal(result.Stdout, &detail); err != nil {
-				problems[idx] = fmt.Sprintf("could not parse item %q: %v", itemID, err)
+				problems[idx] = fmt.Sprintf("could not parse item %q: %v", itemID, provider.SafeError(err))
 				return
 			}
 			perItem[idx] = fieldsToSecrets(detail.Fields)

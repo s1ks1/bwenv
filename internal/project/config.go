@@ -33,7 +33,23 @@ type Metadata struct {
 
 // Activation selects how the project's environment is activated.
 type Activation struct {
-	Mode string `toml:"mode"`
+	Mode     string `toml:"mode"`
+	Disabled bool   `toml:"disabled,omitempty"`
+}
+
+// SetDisabled persists explicit approval for native/mise projects. An absent
+// disabled field keeps existing projects enabled; ordinary directory exits do
+// not change this setting.
+func SetDisabled(path string, disabled bool) error {
+	cfg, err := Load(path)
+	if err != nil {
+		return err
+	}
+	if cfg.Activation.Disabled == disabled {
+		return nil
+	}
+	cfg.Activation.Disabled = disabled
+	return Write(path, cfg)
 }
 
 // Load reads and validates a canonical bwenv project file. A directory path

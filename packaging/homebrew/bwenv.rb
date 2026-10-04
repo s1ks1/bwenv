@@ -11,7 +11,7 @@
 # =============================================================================
 
 class Bwenv < Formula
-  desc "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+  desc "Sync secrets from password managers (Bitwarden, 1Password) into your shell with native, direnv or mise hooks"
   homepage "https://github.com/s1ks1/bwenv"
   url "https://github.com/s1ks1/bwenv/archive/refs/tags/v2.0.0.tar.gz"
   sha256 "PLACEHOLDER"
@@ -47,10 +47,8 @@ class Bwenv < Formula
         - Bitwarden: brew install bitwarden-cli
         - 1Password: brew install --cask 1password-cli
 
-      And hook direnv into your shell:
-        bash: eval "$(direnv hook bash)"
-        zsh:  eval "$(direnv hook zsh)"
-        fish: direnv hook fish | source
+      Run bwenv init and follow the shell setup steps.
+      Native shell activation is the default; bwenv config selects direnv or mise.
     EOS
   end
 

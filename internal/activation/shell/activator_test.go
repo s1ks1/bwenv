@@ -43,6 +43,7 @@ func TestInstallIsIdempotentAndDetectable(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", "/bin/zsh")
 	chdir(t, t.TempDir())
 	a := &Activator{}

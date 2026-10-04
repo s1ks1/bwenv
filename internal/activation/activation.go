@@ -146,3 +146,12 @@ func availableNames() string {
 	sort.Strings(names)
 	return strings.Join(names, ", ")
 }
+
+// ResolveFromProjectConfig reads the secret references shared by all backends.
+func ResolveFromProjectConfig() (Source, error) {
+	cfg, err := project.Load(".bwenv.toml")
+	if err != nil {
+		return Source{}, err
+	}
+	return Source{ProviderSlug: cfg.Provider, FolderName: cfg.Project.FolderName, FolderID: cfg.Project.FolderID, ItemIDs: cfg.Project.Items}, nil
+}

@@ -417,19 +417,27 @@ func (m *mockProvider) GetSecretsByItemIDs(_ context.Context, _ string, _ provid
 	return m.secretsByIDs, m.getSecretsByIDsErr
 }
 
+type canonicalTestBackend struct{ stubBackend }
+
+func (*canonicalTestBackend) Name() string { return "canonical-test" }
+func (*canonicalTestBackend) Resolve() (activation.Source, error) {
+	return activation.ResolveFromProjectConfig()
+}
+
 func TestLoginAndExportUsesCanonicalProjectAndKeepsSessionInShellOutput(t *testing.T) {
 	p := &mockProvider{
 		name:         "Mock",
 		secretsByIDs: []provider.Secret{{Key: "API_KEY", Value: "secret-value"}},
 	}
 	provider.Register(p)
+	activation.Register(&canonicalTestBackend{})
 	stabilityChdir(t, t.TempDir())
 	if err := project.Write(".bwenv.toml", project.Config{
 		Version:  project.ConfigVersion,
 		Provider: "mock",
 		Project:  project.Metadata{FolderID: "folder-id", FolderName: "Production", Items: []string{"item-id"}},
 		Activation: project.Activation{
-			Mode: "direnv",
+			Mode: "canonical-test",
 		},
 	}); err != nil {
 		t.Fatalf("write project config: %v", err)

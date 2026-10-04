@@ -16,8 +16,8 @@ const hookMarker = "# bwenv native shell hook v3 (experimental)"
 var SupportedShells = []string{"zsh", "bash", "fish"}
 
 // Hook returns the activation hook for the named shell. The hook tracks a
-// single active project root and, whenever the prompt fires in a different
-// project, deactivates the old project and activates the new one — so nested
+// single active project root/config fingerprint and, whenever either changes,
+// deactivates the old selection and activates the new one — so nested
 // directories and deactivation are handled without external tooling.
 func Hook(shellName string) (string, error) {
 	switch shellName {
@@ -47,14 +47,15 @@ func DetectShell(shellPath string) string {
 }
 
 const hookPOSIX = hookMarker + `
-# Loads bwenv secrets when entering a project and clears them when leaving.
+# Reloads on project/config changes and restores the environment when leaving.
 _bwenv_active_root="${_bwenv_active_root:-}"
 _bwenv_attempted_root="${_bwenv_attempted_root:-}"
 _bwenv_attempted_session="${_bwenv_attempted_session:-}"
 _bwenv_prompt_hook() {
   local root output
-  root="$(command bwenv root --shell-only 2>/dev/null)" || return
-  [ -z "$root" ] || [ -f "$root/.bwenv.toml" ] || return 0
+  root="$(command bwenv root --shell-only --fingerprint 2>/dev/null)" || return
+  # Ignore help output from an older CLI accidentally found on PATH.
+  case "$root" in ""|/*) ;; *) return 0 ;; esac
   if [ "$root" = "$_bwenv_attempted_root" ] && [ "${BW_SESSION:-}" = "$_bwenv_attempted_session" ]; then
     return 0
   fi
@@ -80,9 +81,9 @@ set -q _bwenv_active_root; or set -g _bwenv_active_root ""
 set -q _bwenv_attempted_root; or set -g _bwenv_attempted_root ""
 set -q _bwenv_attempted_session; or set -g _bwenv_attempted_session ""
 function _bwenv_prompt_hook --on-event fish_prompt
-  set -l root (command bwenv root --shell-only 2>/dev/null)
+  set -l root (command bwenv root --shell-only --fingerprint 2>/dev/null)
   or return
-  if test -n "$root"; and not test -f "$root/.bwenv.toml"
+  if test -n "$root"; and not string match -q '/*' -- "$root"
     return
   end
   if test "$root" = "$_bwenv_attempted_root"; and test "$BW_SESSION" = "$_bwenv_attempted_session"
@@ -92,13 +93,13 @@ function _bwenv_prompt_hook --on-event fish_prompt
   set -g _bwenv_attempted_session "$BW_SESSION"
   if test "$root" != "$_bwenv_active_root"
     if test -n "$_bwenv_active_root"; and set -q _BWENV_STATE
-      set -l output (command bwenv deactivate --shell fish | string collect)
+      set -l output "$(command bwenv deactivate --shell fish)"
       or return
       printf '%s\n' "$output" | source
     end
     set -g _bwenv_active_root ""
     if test -n "$root"
-      set -l output (command bwenv activate --shell fish | string collect)
+      set -l output "$(command bwenv activate --shell fish)"
       or return
       printf '%s\n' "$output" | source
       set -g _bwenv_active_root "$root"

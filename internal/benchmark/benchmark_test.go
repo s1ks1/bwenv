@@ -126,3 +126,28 @@ func TestRunnerTimeoutCountsAttempt(t *testing.T) {
 		t.Fatalf("timed-out process was not counted: %v", processes)
 	}
 }
+
+func TestLargeFolderFilteringRemainsOneProviderCall(t *testing.T) {
+	installFakeCLI(t)
+	t.Setenv("BWENV_FAKE_SCENARIO", "large")
+	for _, selected := range [][]string{nil, {"item-0", "item-999"}} {
+		report, err := Benchmark(context.Background(), "bitwarden", "Folder ' with $pecial spaces", "folder-1", selected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 1000
+		if selected != nil {
+			want = len(selected)
+		}
+		if report.Variables != want || len(report.Processes) != 1 || report.Processes[0].Count != 1 {
+			t.Fatalf("unexpected large-folder result: variables=%d, processes=%v", report.Variables, report.Processes)
+		}
+		var output bytes.Buffer
+		if err := report.Print(&output); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(output.String(), "fake-large-value") {
+			t.Fatal("report exposed a secret")
+		}
+	}
+}

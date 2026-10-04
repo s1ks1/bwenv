@@ -73,17 +73,15 @@ function Test-Checksum {
         $checksums = Invoke-RestMethod -Uri $checksumsUrl -Headers @{ "User-Agent" = "bwenv-installer" }
     }
     catch {
-        Write-Warn "Checksums not available - skipping verification"
-        return
+        Write-Err "Could not download required checksums"
     }
 
-    $line = ($checksums -split "`n") | Where-Object { $_ -match [regex]::Escape($ArchiveName) } | Select-Object -First 1
-    if (-not $line) {
-        Write-Warn "No checksum found for $ArchiveName - skipping verification"
-        return
+    $pattern = '^([0-9a-fA-F]{64})[ \t]+\*?' + [regex]::Escape($ArchiveName) + '$'
+    $lines = @(($checksums -split "`n") | Where-Object { $_.Trim() -match $pattern })
+    if ($lines.Count -ne 1) {
+        Write-Err "Expected exactly one valid SHA256 checksum for $ArchiveName"
     }
-
-    $expected = ($line -split '\s+')[0]
+    $expected = [regex]::Match($lines[0].Trim(), $pattern).Groups[1].Value.ToLower()
     $actual = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
 
     if ($expected -eq $actual) {

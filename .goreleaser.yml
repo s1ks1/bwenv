@@ -18,14 +18,13 @@ project_name: bwenv
 # Run any pre-build steps (e.g. go mod tidy) to ensure a clean state.
 before:
   hooks:
-    - go mod tidy
     - go mod verify
 
 # -- Build configuration --
 # Cross-compile for Linux, macOS, and Windows on amd64 and arm64.
 builds:
   - id: bwenv
-    main: .
+    main: ./cmd/bwenv
     binary: bwenv
 
     # Inject version info at compile time via ldflags.
@@ -87,7 +86,7 @@ checksum:
 # -- Snapshot configuration --
 # Used for local test builds (goreleaser release --snapshot).
 snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  version_template: "3.0.0-dev"
 
 # -- Changelog generation --
 # Automatically generate a changelog from git commits.
@@ -173,14 +172,14 @@ release:
     ---
     **Full Changelog**: https://github.com/s1ks1/bwenv/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-  # Do not mark as draft — publish immediately.
-  draft: false
+  # Keep releases as drafts until a maintainer explicitly publishes.
+  draft: true
 
   # Do not mark as pre-release.
   prerelease: auto
 
-  # Make the latest release the default on the GitHub repo page.
-  make_latest: true
+  # Do not change the public latest release during preparation.
+  make_latest: false
 
 # -- Homebrew Cask --
 # Automatically update the Homebrew cask in the tap repository.
@@ -192,16 +191,15 @@ homebrew_casks:
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/s1ks1/bwenv"
-    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell with native, direnv or mise hooks"
     caveats: |
       To get started, run:
 
         bwenv status
 
-      Make sure direnv is hooked into your shell:
-        bash: eval "$(direnv hook bash)"
-        zsh:  eval "$(direnv hook zsh)"
-        fish: direnv hook fish | source
+      New projects default to native shell activation.
+      Run bwenv init and follow the printed shell setup steps.
+      Use bwenv config to choose direnv or mise instead.
     hooks:
       post:
         install: |
@@ -219,7 +217,7 @@ scoops:
       branch: main
       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
     homepage: "https://github.com/s1ks1/bwenv"
-    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell with native, direnv or mise hooks"
     license: MIT
     post_install: ["Write-Host 'Run ''bwenv status'' to verify your setup.' -ForegroundColor Green"]
 
@@ -232,7 +230,7 @@ nfpms:
     vendor: s1ks1
     homepage: "https://github.com/s1ks1/bwenv"
     maintainer: "s1ks1 <s1ks1@users.noreply.github.com>"
-    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell via direnv"
+    description: "Sync secrets from password managers (Bitwarden, 1Password) into your shell with native, direnv or mise hooks"
     license: MIT
 
     # Output formats.
@@ -253,3 +251,9 @@ nfpms:
     # Package section/group metadata.
     section: utils
     priority: optional
+
+# Inventory each packaged archive; GoReleaser adds SBOMs to checksums/assets.
+sboms:
+  - artifacts: archive
+    cmd: syft
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]

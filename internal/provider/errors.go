@@ -1,6 +1,9 @@
 package provider
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // Typed provider errors let the application layer map failures to actionable
 // user messages without parsing human-readable strings. Providers wrap these
@@ -29,3 +32,25 @@ var (
 	// ErrProviderTimeout means a provider command exceeded its deadline.
 	ErrProviderTimeout = errors.New("provider command timed out")
 )
+
+// SafeError retains the cause for errors.Is/As without exposing runner or JSON
+// error text, which can contain a decrypted value or a session token.
+func SafeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return safeError{cause: err}
+}
+
+type safeError struct{ cause error }
+
+func (e safeError) Error() string {
+	if errors.Is(e.cause, context.DeadlineExceeded) {
+		return "provider operation timed out"
+	}
+	if errors.Is(e.cause, context.Canceled) {
+		return "provider operation cancelled"
+	}
+	return "provider operation failed"
+}
+func (e safeError) Unwrap() error { return e.cause }
