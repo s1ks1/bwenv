@@ -14,7 +14,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/config"
+	"github.com/s1ks1/bwenv/v3/internal/output"
+	"github.com/s1ks1/bwenv/v3/internal/shell"
 )
 
 // E returns the emoji string if ShowEmoji is enabled in the user config,
@@ -60,27 +62,25 @@ func PrintBanner(version string) {
 // PrintSuccess prints a success message with a green checkmark prefix.
 // Use this for operations that completed without errors.
 func PrintSuccess(message string) {
-	fmt.Printf("  %s %s\n", CheckMark, SuccessText.Render(message))
+	output.Success(message)
 }
 
 // PrintError prints an error message with a red cross prefix and detail line.
 // The label provides context about what failed, and err gives the details.
 func PrintError(label string, err error) {
-	header := ErrorText.Render(E("❌", "[X]") + " " + label)
-	detail := lipgloss.NewStyle().Foreground(ColorMuted).Render(err.Error())
-	fmt.Fprintf(os.Stderr, "\n  %s\n    %s\n\n", header, detail)
+	output.Error(label, err)
 }
 
 // PrintWarning prints a warning message with an amber indicator prefix.
 // Use this for non-fatal issues the user should be aware of.
 func PrintWarning(message string) {
-	fmt.Printf("  %s %s\n", WarningMark, WarningText.Render(message))
+	output.Warning(message)
 }
 
 // PrintInfo prints an informational message with a blue dot prefix.
 // Use this for neutral status updates and hints.
 func PrintInfo(message string) {
-	fmt.Printf("  %s %s\n", InfoMark, lipgloss.NewStyle().Foreground(ColorMuted).Render(message))
+	output.Info(message)
 }
 
 // ── Step progress ──────────────────────────────────────────────────────────
@@ -207,19 +207,8 @@ func FormatProviderTag(slug string) string {
 
 // ShortenHomePath replaces the user's home directory prefix with "~"
 // for more compact and readable display in status messages.
-// This is the single shared implementation — use this instead of local copies.
 func ShortenHomePath(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if strings.HasPrefix(path, home) {
-		return "~" + path[len(home):]
-	}
-	return path
+	return shell.ShortenHomePath(path)
 }
 
 // OnOff returns a styled "ON" or "OFF" string for boolean config values.

@@ -1,5 +1,42 @@
 # Changelog
 
+## v3.0.0 - 2026-10-08
+
+- Publish the complete v3 user documentation, command reference, migration guide and accessible workflow demo.
+- Retain v2.4.1 downloads and the v2 maintenance branch for possible compatibility patches.
+
+- Harden CI and release preparation with pinned actions/tools, cross-platform checks, unpublished packaging rehearsals, SBOM/checksum verification and draft-only provenance configuration.
+- Require exact checksums in both installers; fix Windows home-directory fixtures and validate Fish/mise Node workflows.
+- Fix the Windows x/sys vulnerability; source builds now require Go 1.25+.
+
+- Publish the threat model; isolate 1Password signin output, redact runner/decoder errors while preserving typed causes, and reject NUL values before shell output.
+
+- Separate CLI syntax parsing, application workflows and UI rendering; release builds use a thin `cmd/bwenv` entry point while existing root installation paths remain supported.
+- Reject unknown commands/options without shell-evaluated output; fix `--version` and `-v`.
+
+- Persist native/mise project disablement until allow/login; directory exit remains temporary deactivation.
+- Lock/logout restores or clears managed values and removes provider session variables from the invoking shell, including on provider failure. Automatic loads remain blocked until successful authentication; existing wrappers are upgraded in place.
+- Keep mise variable metadata in the referenced project, normalize login-notice paths and upgrade generated scripts on refresh without touching custom scripts.
+
+- Reload native shell secrets when the project config changes in the same directory, restoring variables from the previous selection before loading the new note.
+- Fail allow/login before shell output when project approval fails; bound direnv allow/deny/reload and surface actionable failures.
+- Resolve explicit project commands from subdirectories, share the canonical activation resolver, and verify malicious disk-derived unset names through real Bash eval.
+- Remove plaintext mise env caching and clean legacy caches on installation/reload; a secure memory-only cache remains future agent work.
+- Add current architecture, provider, security, contribution and workflow-review documentation.
+
+- Mise uses quiet exports during automatic evaluation, avoiding startup warnings and repeated summaries on every prompt; explicit login/export commands retain diagnostics.
+
+- Unified compact command and hook messages; reloads after login no longer repeat unchanged load summaries. Interactive failures have one owner, direnv status chatter is filtered, and logout no longer repeats its results.
+
+- Mise sources secrets after tool activation (`tools = true`), avoiding recursion through Node shims. Locked vaults leave tool activation available for login, and subprocess pipe waits are bounded after cancellation.
+
+- Existing shell wrappers are upgraded to evaluate `bwenv login` automatically; activation failures are concise and are not retried on every prompt until the session or project changes.
+
+- New projects default to native shell activation; `bwenv config` saves a default choice of shell, direnv, or mise. Existing project modes remain authoritative.
+- Init prints the selected backend and required shell setup steps. Native and mise backends remain experimental.
+- Fixed hook argument parsing, project switching, environment restoration, activation retries, and mise registration, canonical metadata, relative paths and config preservation.
+- Validated cached unset names and runtime state, tightened project metadata to mode 0600, and surfaced approval failures.
+
 ## v2.4.1 - 2026-09-27
 
 ### Fixed

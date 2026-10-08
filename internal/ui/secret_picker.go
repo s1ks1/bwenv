@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 const maxVisibleSecrets = 12

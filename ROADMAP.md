@@ -1,9 +1,26 @@
 # bwenv Roadmap
 
 > **Project:** `s1ks1/bwenv`
-> **Current public baseline:** `v2.3.0`
+> **Current release:** `v3.0.0` (2026-10-08)
+> **V2 maintenance baseline:** `v2.4.1`; downloads remain available and possible patches use the `v2` branch.
 > **Roadmap scope:** performance, architecture, security, activation model, DX, testing, CI/CD and future extensibility
 > **Primary goal:** make bwenv feel instant in normal shell usage while keeping secret handling safe and the project maintainable as it grows.
+
+## Current v3 direction (2026-10-08)
+
+V3 is the official development and release line. The detailed V2 phases below
+are retained as historical planning, not an active backlog. Current behavior
+and setup are documented in [README.md](README.md) and [the user guides](docs/getting-started.md).
+
+New projects default to native `shell` activation, with a saved preference for
+`direnv` or `mise`. Existing projects retain their backend; native and mise remain
+experimental. This supersedes the older direnv-default proposals below.
+
+The current branch implements canonical metadata, provider capabilities, the
+activation boundary, shell-local sessions and PER-15 CLI/application separation.
+PER-22/PER-23 (optional agent and memory-only cache) remain unfinished.
+Generated mise scripts must not cache decrypted exports on disk. See
+[the workflow review](docs/workflow-review.md) for checked behavior and open gaps.
 
 ## Implementation status
 
@@ -1428,8 +1445,8 @@ This is one of the key architectural milestones.
 
 # 10.9 v3.0 acceptance criteria
 
-- [ ] root `main.go` is replaced by `cmd/bwenv/main.go`;
-- [ ] CLI routing is separated from application logic;
+- [x] `cmd/bwenv/main.go` is a thin entry point; root retains installation compatibility;
+- [x] CLI routing is separated from application logic;
 - [ ] provider implementations are isolated in subpackages;
 - [ ] external process execution is dependency-injected;
 - [ ] project config is canonical and versioned;

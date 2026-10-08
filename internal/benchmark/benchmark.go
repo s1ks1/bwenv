@@ -1,13 +1,14 @@
 package benchmark
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"time"
 
-	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
-	"github.com/s1ks1/bwenv/v2/internal/process"
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v3/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 // BenchmarkReport contains only timing and process metadata.
@@ -19,27 +20,36 @@ type BenchmarkReport struct {
 }
 
 // Benchmark follows the current non-interactive provider path without printing secrets.
-func Benchmark(providerSlug, folderName, folderID string, itemIDs []string) (BenchmarkReport, error) {
+func Benchmark(ctx context.Context, providerSlug, folderName, folderID string, itemIDs []string) (BenchmarkReport, error) {
 	recorder := diagnostics.NewRecorder()
 	start := time.Now()
 	p, err := provider.GetWithRunner(providerSlug, process.ExecRunner{Recorder: recorder})
 	if err != nil {
-		return BenchmarkReport{}, fmt.Errorf("unknown provider")
+		return BenchmarkReport{}, fmt.Errorf("provider unavailable: %w", err)
 	}
 	if !p.IsAvailable() {
 		return BenchmarkReport{}, fmt.Errorf("provider CLI is not installed")
 	}
 
+	auth, err := provider.AsAuthenticator(p)
+	if err != nil {
+		return BenchmarkReport{}, fmt.Errorf("provider does not support authentication")
+	}
+
 	stop := recorder.Start("session check")
-	session, err := p.AuthenticateNonInteractive()
+	session, err := auth.AuthenticateNonInteractive(ctx)
 	stop()
 	if err != nil {
 		return BenchmarkReport{}, fmt.Errorf("session unavailable; run bwenv login")
 	}
 	target := provider.Folder{ID: folderID, Name: folderName}
 	if folderID == "" {
+		lister, listerErr := provider.AsFolderLister(p)
+		if listerErr != nil {
+			return BenchmarkReport{}, fmt.Errorf("provider does not expose folders")
+		}
 		stop = recorder.Start("folder resolution")
-		folders, listErr := p.ListFolders(session)
+		folders, listErr := lister.ListFolders(ctx, session)
 		stop()
 		if listErr != nil {
 			return BenchmarkReport{}, fmt.Errorf("folder lookup failed")
@@ -54,12 +64,16 @@ func Benchmark(providerSlug, folderName, folderID string, itemIDs []string) (Ben
 			return BenchmarkReport{}, fmt.Errorf("folder not found")
 		}
 	}
+	fetcher, fetchErr := provider.AsSecretFetcher(p)
+	if fetchErr != nil {
+		return BenchmarkReport{}, fmt.Errorf("provider cannot fetch secrets")
+	}
 	stop = recorder.Start("secret fetch")
 	var secrets []provider.Secret
 	if len(itemIDs) > 0 {
-		secrets, err = p.GetSecretsByItemIDs(session, target, itemIDs)
+		secrets, err = fetcher.GetSecretsByItemIDs(ctx, session, target, itemIDs)
 	} else {
-		secrets, err = p.GetSecrets(session, target)
+		secrets, err = fetcher.GetSecrets(ctx, session, target)
 	}
 	stop()
 	if err != nil {

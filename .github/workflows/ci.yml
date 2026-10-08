@@ -2,42 +2,58 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v3, 'codex/**']
   pull_request:
+  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
-          cache: true
-      - name: Build
-        run: go build ./...
-      - name: Vet
-        run: go vet ./...
-      - name: Test (race)
-        run: go test -race ./...
+      - run: go mod verify
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -count=1 ./...
 
   quality:
-    name: Formatting, race and security
+    name: Shell compatibility, race and security
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          go-version-file: go.mod
-          cache: true
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+      - name: Install supported shells and direnv
+        run: sudo apt-get update && sudo apt-get install -y fish zsh direnv
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          version: '2026.9.15'
+          install: false
+      - name: Install Node for mise recursion regression
+        run: mise use --global node@22.21.0
       - name: Check formatting
         run: |
           files="$(gofmt -l .)"
@@ -45,12 +61,53 @@ jobs:
             printf '%s\n' "$files"
             exit 1
           fi
-      - run: go test -race ./...
-      - name: Static analysis
+      - name: Race and complete shell integration tests
+        run: go test -v -count=1 -race ./...
+      - name: Static analysis and vulnerability scan
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/staticcheck" ./...
-      - name: Vulnerability scan
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)/bin/govulncheck" ./...
+          "$(go env GOPATH)/bin/actionlint"
+
+  packages:
+    name: Unpublished release rehearsal
+    needs: [build, quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+      - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        id: syft
+        with:
+          syft-version: v1.54.0
+      - name: Make Syft available to GoReleaser
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: dirname "$SYFT" >> "$GITHUB_PATH"
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: v2.18.2
+          args: release --snapshot --clean --skip=publish
+      - name: Verify packaged artifacts
+        run: python3 scripts/verify-release.py dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bwenv-unpublished-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sbom.json
+            dist/checksums.txt
+          if-no-files-found: error
+          retention-days: 7

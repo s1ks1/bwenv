@@ -1,0 +1,334 @@
+// Package provider — Bitwarden implementation.
+// This file wraps the Bitwarden CLI ("bw") to authenticate, list folders,
+// and retrieve secrets (custom fields) from vault items.
+package bitwarden
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/s1ks1/bwenv/v3/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
+)
+
+// Bitwarden implements the provider.Provider interface using the Bitwarden CLI.
+type Bitwarden struct{ Runner process.Runner }
+
+func (b *Bitwarden) WithRunner(runner process.Runner) provider.Provider {
+	return &Bitwarden{Runner: runner}
+}
+
+func (b *Bitwarden) run(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
+	runner := b.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	ctx, cancel := provider.WithDefaultTimeout(ctx, provider.DefaultTimeout)
+	defer cancel()
+	result, err := runner.Run(ctx, "bw", args, streams)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("%w: bw command exceeded its timeout", provider.ErrProviderTimeout)
+	}
+	return result, provider.SafeError(err)
+}
+
+func (b *Bitwarden) runInteractive(ctx context.Context, args []string, streams process.IO) (process.Result, error) {
+	runner := b.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	result, err := runner.Run(ctx, "bw", args, streams)
+	return result, provider.SafeError(err)
+}
+
+// runWithSession runs bw with the session provided to the child via the
+// BW_SESSION environment variable. The session goes via env, never argv —
+// argv is visible in ps to all local users.
+func (b *Bitwarden) runWithSession(ctx context.Context, session string, args []string, streams process.IO) (process.Result, error) {
+	streams.Env = append(os.Environ(), "BW_SESSION="+session)
+	return b.run(ctx, args, streams)
+}
+
+// bwUnexpected is the generic, leak-free user-facing error for cases that
+// would otherwise embed raw bw stdout/stderr.
+const bwUnexpected = "bw returned unexpected output; run 'bwenv login'"
+
+// init registers the Bitwarden provider in the global registry on startup.
+func init() {
+	provider.Register(&Bitwarden{})
+}
+
+// Name returns the human-readable provider name.
+func (b *Bitwarden) Name() string { return "Bitwarden" }
+
+// Slug returns the short identifier used in CLI flags and .envrc files.
+func (b *Bitwarden) Slug() string { return "bitwarden" }
+
+// Description returns a brief explanation of this provider.
+func (b *Bitwarden) Description() string {
+	return "Sync secrets from Bitwarden vault folders (uses 'bw' CLI)"
+}
+
+// CLICommand returns the CLI binary name that must be installed.
+func (b *Bitwarden) CLICommand() string { return "bw" }
+
+// IsAvailable checks whether the "bw" CLI is installed and in PATH.
+func (b *Bitwarden) IsAvailable() bool {
+	_, err := exec.LookPath("bw")
+	return err == nil
+}
+
+// IsAuthenticated checks if there is a valid BW_SESSION environment variable
+// and if the session can actually reach the vault.
+func (b *Bitwarden) IsAuthenticated(ctx context.Context) bool {
+	session := os.Getenv("BW_SESSION")
+	if session == "" {
+		return false
+	}
+	// Try listing folders to verify the session is still valid.
+	// Capture both stdout and stderr so we can detect error responses.
+	result, err := b.runWithSession(ctx, session, []string{"list", "folders"}, process.IO{})
+	if err != nil {
+		return false
+	}
+	out := bytes.TrimSpace(result.Stdout)
+	// The output must be a non-empty JSON array to be considered valid.
+	return len(out) > 0 && out[0] == '['
+}
+
+// Authenticate unlocks the Bitwarden vault and returns a session token.
+// If BW_SESSION is already set and valid, it reuses it without prompting.
+// Otherwise, it syncs the vault and prompts the user for their master password.
+func (b *Bitwarden) Authenticate(ctx context.Context) (string, error) {
+	// Check if there's already a valid session in the environment.
+	if session := os.Getenv("BW_SESSION"); session != "" {
+		if b.IsAuthenticated(ctx) {
+			return session, nil
+		}
+		// Session expired — fall through to unlock.
+	}
+
+	// Sync the vault first (best-effort, don't fail if offline).
+	_, _ = b.runInteractive(ctx, []string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+
+	// Unlock the vault interactively. The "bw unlock --raw" command
+	// prompts for the master password and outputs just the session token.
+	result, err := b.runInteractive(ctx, []string{"unlock", "--raw"}, process.IO{Stdin: os.Stdin, Stderr: os.Stderr})
+	if err != nil {
+		return "", fmt.Errorf("%w: failed to unlock Bitwarden vault: %w", provider.ErrNotAuthenticated, err)
+	}
+
+	session := strings.TrimSpace(string(result.Stdout))
+	if session == "" {
+		return "", fmt.Errorf("%w: empty session token from 'bw unlock'", provider.ErrNotAuthenticated)
+	}
+
+	return session, nil
+}
+
+// AuthenticateNonInteractive returns the session already supplied by the
+// shell. The provider operation validates it, so this method must not invoke
+// another CLI command.
+func (b *Bitwarden) AuthenticateNonInteractive(context.Context) (string, error) {
+	if session := os.Getenv("BW_SESSION"); session != "" {
+		return session, nil
+	}
+	return "", fmt.Errorf("%w: run 'bwenv login' to re-authenticate", provider.ErrSessionExpired)
+}
+
+// Sync updates the local Bitwarden vault without exposing CLI output.
+func (b *Bitwarden) Sync(ctx context.Context) error {
+	runner := b.Runner
+	if runner == nil {
+		runner = process.ExecRunner{}
+	}
+	ctx, cancel := provider.WithDefaultTimeout(ctx, provider.DefaultSyncTimeout)
+	defer cancel()
+	_, err := runner.Run(ctx, "bw", []string{"sync"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil {
+		return fmt.Errorf("Bitwarden sync failed: %w", provider.SafeError(err))
+	}
+	return nil
+}
+
+// bwFolder is the JSON shape returned by "bw list folders".
+type bwFolder struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListFolders returns all folders in the Bitwarden vault.
+// Sync is NOT called here — it's done once in Authenticate() to avoid
+// redundant network calls.
+func (b *Bitwarden) ListFolders(ctx context.Context, session string) ([]provider.Folder, error) {
+	result, err := b.runWithSession(ctx, session, []string{"list", "folders"}, process.IO{})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s while listing folders: %w", provider.ErrProviderUnavailable, bwUnexpected, err)
+	}
+
+	out := bytes.TrimSpace(result.Stdout)
+
+	// Guard against empty output — this can happen when the session has
+	// expired or the vault is locked. The bw CLI sometimes exits 0 but
+	// produces no JSON output (or outputs an error message to stdout).
+	if len(out) == 0 {
+		return nil, fmt.Errorf(
+			"%w: Bitwarden CLI returned empty output when listing folders; run 'bwenv login'",
+			provider.ErrSessionExpired)
+	}
+
+	// Verify the output looks like a JSON array before parsing.
+	// The bw CLI can sometimes return an error message as plain text
+	// (e.g. "Your vault is locked.") instead of JSON.
+	if out[0] != '[' {
+		return nil, fmt.Errorf("%w: %s while listing folders", provider.ErrMalformedProviderResponse, bwUnexpected)
+	}
+
+	var raw []bwFolder
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("%w: %s while listing folders: %w", provider.ErrMalformedProviderResponse, bwUnexpected, provider.SafeError(err))
+	}
+
+	folders := make([]provider.Folder, 0, len(raw))
+	for _, f := range raw {
+		// Skip the "No provider.Folder" entry (null name or empty).
+		if f.Name == "" {
+			continue
+		}
+		folders = append(folders, provider.Folder(f))
+	}
+
+	return folders, nil
+}
+
+// bwItem is the JSON shape for a Bitwarden vault item.
+type bwItem struct {
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	Fields []bwField `json:"fields"`
+}
+
+// bwField is a custom field on a Bitwarden item.
+type bwField struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	Type  int    `json:"type"` // 0 = text, 1 = hidden, 2 = boolean
+}
+
+// GetSecrets retrieves all custom fields from items in the given folder
+// and returns them as key-value provider.Secret pairs. Each field becomes one
+// environment variable — the field name is the key, the field value is the value.
+func (b *Bitwarden) GetSecrets(ctx context.Context, session string, folder provider.Folder) ([]provider.Secret, error) {
+	items, err := b.listItems(ctx, session, folder.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	var secrets []provider.Secret
+	for _, item := range items {
+		for _, field := range item.Fields {
+			if field.Name == "" {
+				continue
+			}
+			secrets = append(secrets, provider.Secret{
+				Key:   field.Name,
+				Value: field.Value,
+			})
+		}
+	}
+
+	return secrets, nil
+}
+
+// ListItems returns all items in the given folder. Each item is a
+// single vault entry that may contain multiple custom fields.
+func (b *Bitwarden) ListItems(ctx context.Context, session string, folder provider.Folder) ([]provider.SecretItem, error) {
+	items, err := b.listItems(ctx, session, folder.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	secretItems := make([]provider.SecretItem, 0, len(items))
+	for _, item := range items {
+		secretItems = append(secretItems, provider.SecretItem{
+			ID:   item.ID,
+			Name: item.Name,
+		})
+	}
+
+	return secretItems, nil
+}
+
+// GetSecretsByItemIDs retrieves custom fields only from the specified items.
+func (b *Bitwarden) GetSecretsByItemIDs(ctx context.Context, session string, folder provider.Folder, itemIDs []string) ([]provider.Secret, error) {
+	items, err := b.listItems(ctx, session, folder.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	byID := make(map[string]bwItem, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+
+	var secrets []provider.Secret
+	for _, id := range itemIDs {
+		item, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("%w: item %q in folder %q", provider.ErrItemNotFound, id, folder.Name)
+		}
+		for _, field := range item.Fields {
+			if field.Name == "" {
+				continue
+			}
+			secrets = append(secrets, provider.Secret{Key: field.Name, Value: field.Value})
+		}
+	}
+
+	return secrets, nil
+}
+
+// listItems is the shared implementation that parses the raw bwItem list
+// from "bw list items". Used by both GetSecrets and ListItems.
+func (b *Bitwarden) listItems(ctx context.Context, session string, folderID string) ([]bwItem, error) {
+	result, err := b.runWithSession(ctx, session, []string{"list", "items", "--folderid", folderID}, process.IO{})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", provider.ErrProviderUnavailable, bwUnexpected, folderID, err)
+	}
+
+	out := bytes.TrimSpace(result.Stdout)
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf(
+			"%w: Bitwarden CLI returned empty output for folder %q; run 'bwenv login'",
+			provider.ErrSessionExpired, folderID)
+	}
+
+	if out[0] != '[' {
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q", provider.ErrMalformedProviderResponse, bwUnexpected, folderID)
+	}
+
+	var items []bwItem
+	if err := json.Unmarshal(out, &items); err != nil {
+		return nil, fmt.Errorf("%w: %s while listing items in folder %q: %w", provider.ErrMalformedProviderResponse, bwUnexpected, folderID, provider.SafeError(err))
+	}
+
+	return items, nil
+}
+
+// Lock locks the Bitwarden vault, invalidating the current session.
+// This is used by the "bwenv logout" command.
+func (b *Bitwarden) Lock(ctx context.Context) error {
+	_, err := b.run(ctx, []string{"lock"}, process.IO{Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil {
+		return fmt.Errorf("failed to lock Bitwarden vault: %w", err)
+	}
+	return nil
+}

@@ -1,17 +1,20 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 
-	"github.com/s1ks1/bwenv/v2/internal/provider"
+	"github.com/s1ks1/bwenv/v3/internal/activation"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
 )
 
 // RunDoctorFlow prints diagnostics suitable for sharing in an issue report.
 func RunDoctorFlow(version string) error {
+	ctx := context.Background()
 	PrintBanner(version)
 	fmt.Println()
 	printStatusSection(E("🩺", "[!]") + " Diagnostics")
@@ -33,13 +36,24 @@ func RunDoctorFlow(version string) error {
 		PrintInfoLine("Shell", shell)
 	}
 
-	_, direnvErr := exec.LookPath("direnv")
-	check(direnvErr == nil, "direnv", statusDetail(direnvErr != nil, "installed", "install from https://direnv.net/"))
-	_, hookFound := findDirenvHook()
-	check(hookFound, "direnv hook", statusDetail(!hookFound, "configured", "add the hook to your shell RC file"))
-
 	info := checkEnvrcStatus()
-	check(info.state == envrcBwenv, ".envrc", envrcDoctorDetail(info.state))
+	if activator, err := activation.ForProject(); err != nil {
+		check(false, "Activation", err.Error())
+	} else if activator.Name() == "direnv" {
+		_, direnvErr := exec.LookPath("direnv")
+		check(direnvErr == nil, "direnv", statusDetail(direnvErr != nil, "installed", "install from https://direnv.net/"))
+		_, hookFound := findDirenvHook()
+		check(hookFound, "direnv hook", statusDetail(!hookFound, "configured", "add the hook to your shell RC file"))
+	} else {
+		status := activator.Detect()
+		check(status.Installed && status.Configured, activator.Name(), status.Detail)
+	}
+	projectFile := ".envrc"
+	if info.canonical {
+		projectFile = ".bwenv.toml"
+	}
+	check(info.state == envrcBwenv, projectFile, envrcDoctorDetail(info.state))
+
 	if info.state == envrcBwenv {
 		if info.folderID == "" {
 			PrintWarningLine("Folder lookup", "FolderID is missing; run 'bwenv init' to regenerate the fast-path configuration")
@@ -54,15 +68,20 @@ func RunDoctorFlow(version string) error {
 			available := p.IsAvailable()
 			check(available, p.Name(), providerDoctorDetail(available, p.CLICommand()))
 			if available {
-				authenticated := p.IsAuthenticated()
-				check(authenticated, "Provider session", statusDetail(!authenticated, "active", "run 'bwenv login' to authenticate"))
+				auth, authErr := provider.AsAuthenticator(p)
+				if authErr != nil {
+					check(false, "Provider session", "provider does not support authentication")
+				} else {
+					authenticated := auth.IsAuthenticated(ctx)
+					check(authenticated, "Provider session", statusDetail(!authenticated, "active", "run 'bwenv login' to authenticate"))
+				}
 			}
 		}
 	}
 
 	if info.state != envrcMissing && runtime.GOOS != "windows" {
-		private := fileHasPrivatePermissions(".envrc")
-		check(private, ".envrc permissions", statusDetail(!private, "private", "run 'chmod 600 .envrc'"))
+		private := fileHasPrivatePermissions(projectFile)
+		check(private, projectFile+" permissions", statusDetail(!private, "private", "run chmod 600 "+projectFile))
 	}
 
 	fmt.Println()

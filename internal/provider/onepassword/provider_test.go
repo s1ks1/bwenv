@@ -1,0 +1,387 @@
+package onepassword
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/s1ks1/bwenv/v3/internal/process"
+	"github.com/s1ks1/bwenv/v3/internal/provider"
+)
+
+func TestOnePasswordVaultJSON(t *testing.T) {
+	data := `[{"id":"v1","name":"Personal"},{"id":"v2","name":"Team Vault"}]`
+	var vaults []opVault
+	if err := json.Unmarshal([]byte(data), &vaults); err != nil {
+		t.Fatalf("failed to parse vault JSON: %v", err)
+	}
+	if len(vaults) != 2 {
+		t.Fatalf("expected 2 vaults, got %d", len(vaults))
+	}
+	if vaults[0].ID != "v1" || vaults[0].Name != "Personal" {
+		t.Errorf("expected vault[0] = {v1 Personal}, got {%s %s}", vaults[0].ID, vaults[0].Name)
+	}
+}
+
+func TestOnePasswordItemJSON(t *testing.T) {
+	data := `[{"id":"item1","title":"API Keys"},{"id":"item2","title":"DB Creds"}]`
+	var items []opItem
+	if err := json.Unmarshal([]byte(data), &items); err != nil {
+		t.Fatalf("failed to parse item JSON: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].Title != "API Keys" {
+		t.Errorf("expected item[0].Title = 'API Keys', got %q", items[0].Title)
+	}
+}
+
+func TestOnePasswordItemDetailJSON(t *testing.T) {
+	data := `{
+		"id":"item1",
+		"title":"API Keys",
+		"fields":[
+			{"id":"f1","label":"API_KEY","value":"sk-123","type":"CONCEALED","purpose":""},
+			{"id":"f2","label":"API_SECRET","value":"ss-456","type":"CONCEALED","purpose":""}
+		]
+	}`
+	var detail opItemDetail
+	if err := json.Unmarshal([]byte(data), &detail); err != nil {
+		t.Fatalf("failed to parse item detail JSON: %v", err)
+	}
+	if detail.Title != "API Keys" {
+		t.Errorf("expected title 'API Keys', got %q", detail.Title)
+	}
+	if len(detail.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(detail.Fields))
+	}
+}
+
+func TestOnePasswordVaultsToFolders(t *testing.T) {
+	raw := []opVault{
+		{ID: "v1", Name: "Personal"},
+		{ID: "v2", Name: "Work"},
+	}
+
+	folders := make([]provider.Folder, 0, len(raw))
+	for _, v := range raw {
+		folders = append(folders, v.ToFolder())
+	}
+
+	if len(folders) != 2 {
+		t.Fatalf("expected 2 folders, got %d", len(folders))
+	}
+	if folders[1].Name != "Work" {
+		t.Errorf("expected folder[1] = Work, got %q", folders[1].Name)
+	}
+}
+
+func TestOnePasswordFieldToSecret(t *testing.T) {
+	detail := opItemDetail{
+		ID:    "item1",
+		Title: "API Keys",
+		Fields: []opItemField{
+			{ID: "f1", Label: "API_KEY", Value: "sk-123", Type: "CONCEALED", Purpose: ""},
+			{ID: "f2", Label: "API_SECRET", Value: "ss-456", Type: "CONCEALED", Purpose: ""},
+		},
+	}
+
+	var secrets []provider.Secret
+	for _, field := range detail.Fields {
+		if field.Label == "" {
+			continue
+		}
+		if strings.EqualFold(field.Purpose, "NOTES") {
+			continue
+		}
+		if strings.EqualFold(field.Type, "OTP") {
+			continue
+		}
+		if field.Value == "" {
+			continue
+		}
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
+	}
+
+	if len(secrets) != 2 {
+		t.Fatalf("expected 2 secrets, got %d", len(secrets))
+	}
+	if secrets[0].Key != "API_KEY" || secrets[0].Value != "sk-123" {
+		t.Errorf("expected {API_KEY sk-123}, got {%s %s}", secrets[0].Key, secrets[0].Value)
+	}
+}
+
+func TestOnePasswordSkipsNotesField(t *testing.T) {
+	detail := opItemDetail{
+		ID:    "item1",
+		Title: "Test",
+		Fields: []opItemField{
+			{ID: "f1", Label: "Notes", Value: "some notes", Type: "STRING", Purpose: "NOTES"},
+			{ID: "f2", Label: "API_KEY", Value: "sk-123", Type: "CONCEALED", Purpose: ""},
+		},
+	}
+
+	var secrets []provider.Secret
+	for _, field := range detail.Fields {
+		if field.Label == "" {
+			continue
+		}
+		if strings.EqualFold(field.Purpose, "NOTES") {
+			continue
+		}
+		if strings.EqualFold(field.Type, "OTP") {
+			continue
+		}
+		if field.Value == "" {
+			continue
+		}
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
+	}
+
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret (NOTES skipped), got %d", len(secrets))
+	}
+	if secrets[0].Key != "API_KEY" {
+		t.Errorf("expected API_KEY, got %q", secrets[0].Key)
+	}
+}
+
+func TestOnePasswordSkipsOTPField(t *testing.T) {
+	detail := opItemDetail{
+		ID:    "item1",
+		Title: "Test",
+		Fields: []opItemField{
+			{ID: "f1", Label: "TOTP", Value: "otp-secret", Type: "OTP", Purpose: ""},
+			{ID: "f2", Label: "VALID_KEY", Value: "valid", Type: "STRING", Purpose: ""},
+		},
+	}
+
+	var secrets []provider.Secret
+	for _, field := range detail.Fields {
+		if field.Label == "" {
+			continue
+		}
+		if strings.EqualFold(field.Purpose, "NOTES") {
+			continue
+		}
+		if strings.EqualFold(field.Type, "OTP") {
+			continue
+		}
+		if field.Value == "" {
+			continue
+		}
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
+	}
+
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret (OTP skipped), got %d", len(secrets))
+	}
+}
+
+func TestOnePasswordSkipsEmptyValue(t *testing.T) {
+	detail := opItemDetail{
+		ID:    "item1",
+		Title: "Test",
+		Fields: []opItemField{
+			{ID: "f1", Label: "EMPTY_FIELD", Value: "", Type: "STRING", Purpose: ""},
+			{ID: "f2", Label: "GOOD_KEY", Value: "good-value", Type: "STRING", Purpose: ""},
+		},
+	}
+
+	var secrets []provider.Secret
+	for _, field := range detail.Fields {
+		if field.Label == "" {
+			continue
+		}
+		if strings.EqualFold(field.Purpose, "NOTES") {
+			continue
+		}
+		if strings.EqualFold(field.Type, "OTP") {
+			continue
+		}
+		if field.Value == "" {
+			continue
+		}
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
+	}
+
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret (empty value skipped), got %d", len(secrets))
+	}
+}
+
+func TestOnePasswordSkipsEmptyLabel(t *testing.T) {
+	detail := opItemDetail{
+		ID:    "item1",
+		Title: "Test",
+		Fields: []opItemField{
+			{ID: "f1", Label: "", Value: "no-label", Type: "STRING", Purpose: ""},
+			{ID: "f2", Label: "GOOD_KEY", Value: "good-value", Type: "STRING", Purpose: ""},
+		},
+	}
+
+	var secrets []provider.Secret
+	for _, field := range detail.Fields {
+		if field.Label == "" {
+			continue
+		}
+		if strings.EqualFold(field.Purpose, "NOTES") {
+			continue
+		}
+		if strings.EqualFold(field.Type, "OTP") {
+			continue
+		}
+		if field.Value == "" {
+			continue
+		}
+		secrets = append(secrets, provider.Secret{Key: field.Label, Value: field.Value})
+	}
+
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret (empty label skipped), got %d", len(secrets))
+	}
+}
+
+func TestOnePasswordItemsToSecretItems(t *testing.T) {
+	raw := []opItem{
+		{ID: "id-1", Title: "API Keys"},
+		{ID: "id-2", Title: "Database"},
+	}
+
+	items := make([]provider.SecretItem, 0, len(raw))
+	for _, item := range raw {
+		items = append(items, provider.SecretItem{ID: item.ID, Name: item.Title})
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].Name != "API Keys" {
+		t.Errorf("expected items[0] = 'API Keys', got %q", items[0].Name)
+	}
+}
+
+// opStubRunner answers "op item get <id>" from canned per-item output so the
+// selected-item path can be exercised without a real 1Password account.
+type opStubRunner struct {
+	stdout map[string]string
+	errs   map[string]error
+}
+
+func (r *opStubRunner) Run(_ context.Context, _ string, args []string, _ process.IO) (process.Result, error) {
+	id := ""
+	if len(args) >= 3 && args[0] == "item" && args[1] == "get" {
+		id = args[2]
+	}
+	if err := r.errs[id]; err != nil {
+		return process.Result{}, err
+	}
+	return process.Result{Stdout: []byte(r.stdout[id])}, nil
+}
+
+func TestOnePasswordSelectedItemFailureIsReportedAsError(t *testing.T) {
+	runner := &opStubRunner{
+		stdout: map[string]string{
+			"item-1": `{"id":"item-1","title":"Test","fields":[{"id":"f1","label":"API_KEY","value":"sk-123","type":"CONCEALED"}]}`,
+		},
+		errs: map[string]error{"item-2": errors.New("item not found")},
+	}
+	var warnings bytes.Buffer
+	o := &OnePassword{Runner: runner, Warnings: &warnings}
+
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", provider.Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
+	if err == nil {
+		t.Fatal("expected an error when a selected item cannot be fetched")
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "measured") {
+		t.Fatalf("benchmark vocabulary leaked into a provider error: %v", err)
+	}
+	if len(secrets) != 1 || secrets[0].Key != "API_KEY" {
+		t.Fatalf("expected the readable item's secret, got %+v", secrets)
+	}
+	if !strings.Contains(warnings.String(), "item-2") {
+		t.Fatalf("expected a per-item warning naming item-2, got %q", warnings.String())
+	}
+}
+
+func TestOnePasswordSelectedItemsKeepOrderAndSkipNonSecrets(t *testing.T) {
+	runner := &opStubRunner{
+		stdout: map[string]string{
+			"item-1": `{"id":"item-1","title":"A","fields":[{"id":"f1","label":"API_KEY","value":"sk-123","type":"CONCEALED"}]}`,
+			"item-2": `{"id":"item-2","title":"B","fields":[{"id":"f2","label":"DB_URL","value":"postgres://db","type":"STRING"},{"id":"f3","label":"Notes","value":"x","type":"STRING","purpose":"NOTES"}]}`,
+		},
+	}
+	var warnings bytes.Buffer
+	o := &OnePassword{Runner: runner, Warnings: &warnings}
+
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "sess", provider.Folder{ID: "v1", Name: "V"}, []string{"item-1", "item-2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(secrets) != 2 {
+		t.Fatalf("expected 2 secrets (NOTES skipped), got %+v", secrets)
+	}
+	if secrets[0].Key != "API_KEY" || secrets[1].Key != "DB_URL" {
+		t.Fatalf("selected items lost their order: %+v", secrets)
+	}
+	if warnings.Len() != 0 {
+		t.Fatalf("expected no warnings, got %q", warnings.String())
+	}
+}
+
+func TestOnePasswordVaultFetchUsesSameItemPath(t *testing.T) {
+	runner := &opStubRunner{}
+	o := &OnePassword{Runner: runner, Warnings: &bytes.Buffer{}}
+
+	// Vault listing is not stubbed, so this exercises the fetch helper's
+	// contract indirectly: no items means no secrets and no error.
+	secrets, problems := o.fetchItemsSecrets(context.Background(), nil, "v1")
+	if len(secrets) != 0 || len(problems) != 0 {
+		t.Fatalf("expected empty result for no items, got secrets=%v problems=%v", secrets, problems)
+	}
+}
+
+// Emulate signin chatter without allowing it onto executable stdout.
+type opSigninRunner struct{ streams process.IO }
+
+func (r *opSigninRunner) Run(_ context.Context, _ string, args []string, streams process.IO) (process.Result, error) {
+	if args[0] != "signin" {
+		return process.Result{}, errors.New("not signed in")
+	}
+	r.streams = streams
+	if streams.Stdout != nil {
+		_, _ = io.WriteString(streams.Stdout, "echo arbitrary-provider-output\n")
+	}
+	return process.Result{}, nil
+}
+func TestSigninOutputIsNotShellCode(t *testing.T) {
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "")
+	runner := &opSigninRunner{}
+	if _, err := (&OnePassword{Runner: runner}).Authenticate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if runner.streams.Stdout != io.Discard || runner.streams.Stdin != os.Stdin || runner.streams.Stderr != os.Stderr {
+		t.Fatal("signin must keep prompts interactive and discard executable stdout")
+	}
+}
+
+func TestItemErrorsNeverRenderSecretPayloadsOrRunnerText(t *testing.T) {
+	const sensitive = "fixture-secret-session-do-not-print"
+	for _, runner := range []*opStubRunner{
+		{stdout: map[string]string{"item-1": `{"fields":{"` + sensitive + `":"unexpected"}}`}},
+		{errs: map[string]error{"item-1": errors.New(sensitive)}},
+	} {
+		var warnings bytes.Buffer
+		o := &OnePassword{Runner: runner, Warnings: &warnings}
+		_, err := o.GetSecretsByItemIDs(context.Background(), "", provider.Folder{ID: "vault"}, []string{"item-1"})
+		if err == nil || strings.Contains(err.Error(), sensitive) || strings.Contains(warnings.String(), sensitive) {
+			t.Fatalf("unsafe item diagnostics: %v %q", err, warnings.String())
+		}
+	}
+}

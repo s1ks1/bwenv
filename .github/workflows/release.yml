@@ -1,147 +1,78 @@
-# =============================================================================
-# GitHub Actions — Release workflow for bwenv
-#
-# Triggers on:
-#   - Pushing a version tag (e.g. v2.0.0)
-#   - Manual workflow dispatch with a version input
-#
-# What it does:
-#   1. Checks out the code and sets up Go
-#   2. Runs tests to ensure everything passes
-#   3. Uses GoReleaser to cross-compile binaries for all platforms
-#   4. Creates a GitHub Release with archives and checksums
-#   5. Updates the Homebrew tap and Scoop bucket automatically
-# =============================================================================
-
+# Manual dispatch only rehearses packaging. Publishing requires an existing
+# version tag and the release environment; configure required reviewers there.
 name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ['v*']
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release (e.g. v2.0.0)"
-        required: true
-        type: string
 
-# Only allow one release at a time to avoid conflicts.
+permissions:
+  contents: read
+
 concurrency:
   group: release
   cancel-in-progress: false
 
-permissions:
-  contents: write
-
 jobs:
-  # -- Test job: run tests before releasing --
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  validate:
+    uses: ./.github/workflows/ci.yml
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Run vet
-        run: go vet ./...
-
-      - name: Run tests
-        run: go test -v -race -count=1 ./...
-
-  # -- Release job: build and publish --
   release:
-    name: Release
-    needs: test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    environment: release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
-
+      id-token: write
+      attestations: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Determine version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Releasing version: ${VERSION}"
-
-      # Create and push the tag if triggered via workflow_dispatch
-      # (manual releases may not have a tag yet).
-      - name: Create tag (if manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Only create the tag if it doesn't already exist.
-          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
-            git tag -a "$VERSION" -m "Release $VERSION"
-            git push origin "$VERSION"
-          fi
-
-      # Clean up any existing release with the same tag to avoid
-      # "already_exists" upload errors when re-running a failed workflow.
-      # Only delete the release, NOT the tag — GoReleaser needs it for changelog.
-      - name: Delete existing release (if any)
+          go-version: '1.27.1'
+      - name: Validate existing tag and refuse release replacement
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          gh release delete "$VERSION" --yes 2>/dev/null || true
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+          VERSION="${GITHUB_REF#refs/tags/}"
+          if [[ ! "$VERSION" =~ ^v3\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected a v3 semantic version tag" >&2
+            exit 1
+          fi
+          test "$(git rev-list -n 1 "$VERSION")" = "$(git rev-parse HEAD)"
+          # A failed API request also fails closed; it is not treated as absence.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name' > /tmp/release-tags
+          if grep -Fxq "$VERSION" /tmp/release-tags; then
+            echo "Release already exists; refusing to replace it" >&2
+            exit 1
+          fi
+      - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        id: syft
         with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+          syft-version: v1.54.0
+      - env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: dirname "$SYFT" >> "$GITHUB_PATH"
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: v2.18.2
+          args: release --clean --draft --skip=homebrew,scoop
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tokens for updating the Homebrew tap and Scoop bucket repos.
-          # Set these as repository secrets if you want automatic tap/bucket updates.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
-
-      - name: Upload release artifacts summary
-        run: |
-          echo "## Release ${{ steps.version.outputs.VERSION }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Artifacts" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          ls -lh dist/*.tar.gz dist/*.zip 2>/dev/null | while read -r line; do
-            echo "- \`$(echo "$line" | awk '{print $NF}')\` ($(echo "$line" | awk '{print $5}'))" >> "$GITHUB_STEP_SUMMARY"
-          done
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Checksums" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat dist/checksums.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: python3 scripts/verify-release.py dist
+      - name: Attest archive and package provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sbom.json
+            dist/checksums.txt

@@ -1,113 +1,73 @@
-package provider
+package provider_test
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/s1ks1/bwenv/v3/internal/provider"
+	_ "github.com/s1ks1/bwenv/v3/internal/provider/all"
 )
 
-func TestRegisterAndGet(t *testing.T) {
-	p, err := Get("bitwarden")
-	if err != nil {
-		t.Fatalf("expected bitwarden to be registered, got error: %v", err)
-	}
-	if p.Name() != "Bitwarden" {
-		t.Errorf("expected Name() = Bitwarden, got %q", p.Name())
-	}
-	if p.Slug() != "bitwarden" {
-		t.Errorf("expected Slug() = bitwarden, got %q", p.Slug())
+func TestGetRegisteredProviders(t *testing.T) {
+	for _, slug := range []string{"bitwarden", "1password"} {
+		p, err := provider.Get(slug)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", slug, err)
+		}
+		if p.Slug() != slug {
+			t.Fatalf("Get(%q).Slug() = %q", slug, p.Slug())
+		}
 	}
 }
 
 func TestGetCaseInsensitive(t *testing.T) {
-	p, err := Get("BitWarden")
+	p, err := provider.Get("BitWarden")
 	if err != nil {
-		t.Fatalf("expected case-insensitive lookup to work, got error: %v", err)
+		t.Fatalf("Get(\"BitWarden\") error: %v", err)
 	}
 	if p.Slug() != "bitwarden" {
-		t.Errorf("expected slug bitwarden, got %q", p.Slug())
+		t.Fatalf("slug = %q, want bitwarden", p.Slug())
 	}
 }
 
-func TestGetUnknownProvider(t *testing.T) {
-	_, err := Get("nonexistent")
+func TestGetUnknownProviderListsAvailable(t *testing.T) {
+	_, err := provider.Get("nonexistent")
 	if err == nil {
-		t.Fatal("expected error for unknown provider")
+		t.Fatal("expected an error for an unknown provider")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "bitwarden") || !strings.Contains(msg, "1password") {
+		t.Fatalf("error should list available providers, got: %q", msg)
 	}
 }
 
-func TestAllReturnsSorted(t *testing.T) {
-	all := All()
+func TestAllIsSortedAndComplete(t *testing.T) {
+	all := provider.All()
 	if len(all) < 2 {
 		t.Fatalf("expected at least 2 providers, got %d", len(all))
 	}
 	for i := 1; i < len(all); i++ {
 		if all[i-1].Name() > all[i].Name() {
-			t.Errorf("providers not sorted by name: %s > %s",
-				all[i-1].Name(), all[i].Name())
+			t.Fatalf("providers not sorted by name: %s > %s", all[i-1].Name(), all[i].Name())
 		}
 	}
-}
-
-func TestAllContainsBitwarden(t *testing.T) {
-	all := All()
-	found := false
+	slugs := make(map[string]bool, len(all))
 	for _, p := range all {
-		if p.Slug() == "bitwarden" {
-			found = true
-			break
-		}
+		slugs[p.Slug()] = true
 	}
-	if !found {
-		t.Error("expected All() to include bitwarden")
+	if !slugs["bitwarden"] || !slugs["1password"] {
+		t.Fatalf("All() is missing a built-in provider: %v", slugs)
 	}
 }
 
-func TestAvailableSlugsString(t *testing.T) {
-	slugs := availableSlugs()
-	if slugs == "" {
-		t.Fatal("expected non-empty slugs string")
+func TestModelStructs(t *testing.T) {
+	if s := (provider.Secret{Key: "K", Value: "V"}); s.Key != "K" || s.Value != "V" {
+		t.Fatal("Secret fields not preserved")
 	}
-	if slugs != "1password, bitwarden" && slugs != "bitwarden, 1password" {
-		t.Errorf("expected '1password, bitwarden' or 'bitwarden, 1password', got %q", slugs)
+	if f := (provider.Folder{ID: "f1", Name: "Prod"}); f.ID != "f1" || f.Name != "Prod" {
+		t.Fatal("Folder fields not preserved")
 	}
-}
-
-func TestSecretItemStruct(t *testing.T) {
-	item := SecretItem{ID: "id-1", Name: "My Item"}
-	if item.ID != "id-1" {
-		t.Errorf("expected ID 'id-1', got %q", item.ID)
-	}
-	if item.Name != "My Item" {
-		t.Errorf("expected Name 'My Item', got %q", item.Name)
-	}
-}
-
-func TestFolderStruct(t *testing.T) {
-	f := Folder{ID: "folder-1", Name: "Production"}
-	if f.ID != "folder-1" {
-		t.Errorf("expected ID 'folder-1', got %q", f.ID)
-	}
-	if f.Name != "Production" {
-		t.Errorf("expected Name 'Production', got %q", f.Name)
-	}
-}
-
-func TestSecretStruct(t *testing.T) {
-	s := Secret{Key: "API_KEY", Value: "sk-123"}
-	if s.Key != "API_KEY" {
-		t.Errorf("expected Key 'API_KEY', got %q", s.Key)
-	}
-	if s.Value != "sk-123" {
-		t.Errorf("expected Value 'sk-123', got %q", s.Value)
-	}
-}
-
-func TestOPVaultToFolder(t *testing.T) {
-	v := opVault{ID: "vault-1", Name: "My Vault"}
-	f := v.ToFolder()
-	if f.ID != "vault-1" {
-		t.Errorf("expected folder ID 'vault-1', got %q", f.ID)
-	}
-	if f.Name != "My Vault" {
-		t.Errorf("expected folder Name 'My Vault', got %q", f.Name)
+	if it := (provider.SecretItem{ID: "i1", Name: "Item"}); it.ID != "i1" || it.Name != "Item" {
+		t.Fatal("SecretItem fields not preserved")
 	}
 }

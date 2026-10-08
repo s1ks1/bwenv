@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/s1ks1/bwenv/v2/internal/diagnostics"
+	"github.com/s1ks1/bwenv/v3/internal/diagnostics"
 )
 
 type IO struct {
@@ -42,6 +42,8 @@ func (r ExecRunner) Run(ctx context.Context, name string, args []string, streams
 		defer cancel()
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
+	// A cancelled CLI may leave child processes holding its stdout/stderr pipes.
+	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdin = streams.Stdin
 	cmd.Stdout = &stdout
