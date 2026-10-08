@@ -11,6 +11,42 @@ import (
 	"testing"
 )
 
+func TestInstallerReleaseArchiveURLs(t *testing.T) {
+	for _, shell := range []string{"sh", "pwsh"} {
+		t.Run(shell, func(t *testing.T) {
+			executable, err := exec.LookPath(shell)
+			if err != nil || (shell == "sh" && runtime.GOOS == "windows") {
+				t.Skip(shell + " unavailable")
+			}
+			filename, start := "install.sh", "    # Strip 'v' prefix"
+			prelude := "VERSION=v3.0.0; PLATFORM=darwin-arm64; GITHUB_REPO=s1ks1/bwenv\n"
+			invocation := "printf '%s' \"$DOWNLOAD_URL\""
+			expected := "https://github.com/s1ks1/bwenv/releases/download/v3.0.0/bwenv-3.0.0-darwin-arm64.tar.gz"
+			args := []string{"-c"}
+			if shell == "pwsh" {
+				filename, start = "install.ps1", "    # Construct download URL."
+				prelude = "$Version='v3.0.0'; $arch='amd64'; $GitHubRepo='s1ks1/bwenv'\n"
+				invocation = "[Console]::Write($downloadUrl)"
+				expected = "https://github.com/s1ks1/bwenv/releases/download/v3.0.0/bwenv-3.0.0-windows-amd64.zip"
+				args = []string{"-NoProfile", "-NonInteractive", "-Command"}
+			}
+			content, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(content)
+			first, last := strings.Index(text, start), strings.Index(text, "    # Create temp directory.")
+			if first < 0 || last <= first {
+				t.Fatal("installer URL construction missing")
+			}
+			result, err := exec.Command(executable, append(args, prelude+text[first:last]+invocation)...).CombinedOutput()
+			if err != nil || string(result) != expected {
+				t.Fatalf("URL=%q want=%q err=%v", result, expected, err)
+			}
+		})
+	}
+}
+
 func TestInstallersRequireExactValidChecksum(t *testing.T) {
 	archive := filepath.Join(t.TempDir(), "bwenv.zip")
 	data := []byte("fixture archive")
