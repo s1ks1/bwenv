@@ -1,8 +1,10 @@
-# v3 preproduction verification
+# Release verification and publication
 
-No production publication is part of this preparation. Do not push version tags,
-publish drafts, update the Homebrew/Scoop repositories or replace an existing
-release while checking this branch.
+The release workflow validates a version tag, builds a draft and attests its
+artifacts. Publish the verified draft as latest only after all jobs pass and
+provenance verification succeeds. Existing releases must never be replaced.
+V3 is the official release line; V2 downloads remain available and possible
+patches use the `v2` maintenance branch without changing the latest V3 release.
 
 ## Reproduce the checks
 
@@ -34,10 +36,9 @@ static, vulnerability and workflow checks. It packages only after those jobs
 pass. A manual Release workflow dispatch calls the same verification workflow
 and uploads unpublished artifacts; it cannot create/push a tag or publish.
 
-The tag-only release job requires the `release` environment, refuses an existing
-release and writes a draft with Homebrew/Scoop publishing skipped. Configure
-required reviewers on that environment in GitHub before enabling real tag
-releases; naming an environment alone does not configure protection. Artifact
+The tag-only release job requires the protected `release` environment, refuses
+an existing release and writes a draft with Homebrew/Scoop publishing skipped.
+The maintainer reviews that environment deployment before building. Artifact
 provenance uses GitHub attestations with job-scoped OIDC/attestation permissions.
 Attestation issuance must still be exercised in an authorized release; a local
 snapshot is not signed provenance. Verify released assets with
@@ -47,6 +48,22 @@ Both installers now require an exact, unique valid checksum and fail if it canno
 be fetched or verified. This detects tampering against that checksum file; it is
 not independent authentication of a compromised repository. GitHub provenance
 adds build identity; it does not certify that the source itself is harmless.
+
+## Publish a verified release
+
+1. Merge the release source and documentation to `main` after CI passes.
+2. Create an annotated `v3.x.y` tag on that merged commit and push it.
+3. Review the protected environment deployment; wait for validation, packaging
+   and provenance attestation to succeed.
+4. Download the draft assets, run `python3 scripts/verify-release.py DIRECTORY`,
+   and verify archive/package provenance with `gh attestation verify`.
+5. Publish the draft and mark it latest. Update the Homebrew and Scoop manifests
+   with the exact archive URLs and the verified release checksums.
+6. Check a downloaded binary's version and help output and confirm the previous
+   V2 release still has its assets. Preserve release tags and downloads.
+
+Real-provider authentication and target-OS installation are separate from the
+isolated CI fixtures; report that distinction when publishing.
 
 ## Compatibility evidence
 

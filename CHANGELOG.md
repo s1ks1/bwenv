@@ -1,6 +1,9 @@
 # Changelog
 
-## v3.0.0 - Unreleased
+## v3.0.0 - 2026-10-08
+
+- Publish the complete v3 user documentation, command reference, migration guide and accessible workflow demo.
+- Retain v2.4.1 downloads and the v2 maintenance branch for possible compatibility patches.
 
 - Harden CI and release preparation with pinned actions/tools, cross-platform checks, unpublished packaging rehearsals, SBOM/checksum verification and draft-only provenance configuration.
 - Require exact checksums in both installers; fix Windows home-directory fixtures and validate Fish/mise Node workflows.

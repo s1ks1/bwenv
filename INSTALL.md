@@ -1,687 +1,238 @@
-# bwenv — Installation & Testing Guide
+# Install bwenv v3
 
-Complete instructions for installing bwenv and all prerequisites on **macOS**, **Linux**, and **Windows**, plus step-by-step testing workflows for **Bitwarden** and **1Password**.
+[Documentation home](README.md) · [Next: your first project](docs/getting-started.md)
 
----
+> [!NOTE]
+> This guide targets **bwenv 3.x**. Examples that pin an exact release use
+> **v3.0.0**. For a newer v3 patch release, substitute its tag consistently in
+> download, installation and source-build commands.
 
-## v3 activation choice
+## Requirements
 
-The native `shell` hook is the default for new projects and needs no direnv or mise installation. Run `bwenv config` to save a different default once; use Enter on **Default Activation Hook**, then S. Existing projects retain their chosen backend.
+| Requirement | Details |
+| --- | --- |
+| bwenv | One binary on your shell's `PATH` |
+| Password manager CLI | Bitwarden `bw`, or 1Password `op` v2 configured for your account |
+| Interactive shell | Bash, Zsh or Fish for automatic activation and the login wrapper |
+| Optional hook | `direnv` or `mise` only when you choose that backend |
+| Building from source | Go 1.25+; Make optional |
 
-After `bwenv init`, follow its printed commands: source your shell RC file or open a new terminal, then `bwenv login`. Optional hooks require their CLI and a one-time RC entry: `eval "$(direnv hook zsh)"` or `eval "$(mise activate zsh)"` (replace zsh with bash). Fish uses `direnv hook fish | source` or `mise activate fish | source`. Mise also requires `mise trust` in the project. Native manual setup uses `eval "$(bwenv hook zsh)"` or `bwenv hook fish | source`.
+Release packages target macOS/Linux amd64 and arm64, and Windows amd64.
+Windows has a CLI binary, but native PowerShell environment activation is not
+implemented. For a supported workflow use Bash in Git Bash, or install the Linux
+build and provider CLI inside WSL. Do not mix Windows and WSL installations or sessions.
 
-Native Bash/Zsh/Fish and mise are experimental in v3. For PowerShell, select direnv in `bwenv config` and follow the PowerShell instructions below.
+Install the provider CLI using its official guide:
 
-## Table of Contents
+- [Bitwarden CLI](https://bitwarden.com/help/cli/).
+- [1Password CLI](https://developer.1password.com/docs/cli/get-started/).
 
-- [Prerequisites](#prerequisites)
-- [Install bwenv](#install-bwenv)
-  - [macOS](#macos)
-  - [Linux (Ubuntu/Debian)](#linux-ubuntudebian)
-  - [Linux (Fedora/RHEL)](#linux-fedorarhel)
-  - [Linux (Arch)](#linux-arch)
-  - [Windows](#windows)
-  - [From Source (All Platforms)](#from-source-all-platforms)
-- [Post-Install Setup](#post-install-setup)
-  - [Configure direnv Hook](#configure-direnv-hook)
-  - [Verify Installation](#verify-installation)
-- [Testing with Bitwarden](#testing-with-bitwarden)
-  - [Bitwarden Setup](#bitwarden-setup)
-  - [Bitwarden Test: Interactive Mode](#bitwarden-test-interactive-mode)
-  - [Bitwarden Test: Non-Interactive Mode](#bitwarden-test-non-interactive-mode)
-  - [Bitwarden: CI/CD Usage](#bitwarden-cicd-usage)
-- [Testing with 1Password](#testing-with-1password)
-  - [1Password Setup](#1password-setup)
-  - [1Password Test: Interactive Mode](#1password-test-interactive-mode)
-  - [1Password Test: Non-Interactive Mode](#1password-test-non-interactive-mode)
-  - [1Password: CI/CD Usage](#1password-cicd-usage)
-- [Troubleshooting](#troubleshooting)
-- [Uninstall](#uninstall)
+Verify the executable in the **same shell** that will run bwenv:
 
----
-
-## Prerequisites
-
-bwenv requires **two** things:
-
-| Tool | Why | Install link |
-|------|-----|-------------|
-| **direnv** | Automatically loads/unloads env vars when you `cd` into a directory | [direnv.net](https://direnv.net/) |
-| **Password manager CLI** (at least one) | Fetches secrets from your vault | See below |
-
-### Password Manager CLIs
-
-| Provider | CLI | Install link |
-|----------|-----|-------------|
-| Bitwarden | `bw` | [bitwarden.com/help/cli](https://bitwarden.com/help/cli/) |
-| 1Password | `op` | [developer.1password.com/docs/cli](https://developer.1password.com/docs/cli/) |
-
----
-
-## Install bwenv
-
-### Quick Install (Recommended)
-
-**macOS / Linux** — one-line install via curl:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
+```sh
+bw --version  # Bitwarden users
+op --version  # 1Password users
 ```
 
-Or with wget:
+You only need one of these. If you choose an optional backend, verify `direnv version`
+or `mise --version` too.
 
-```bash
-wget -qO- https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
-```
+## Choose an installation method
 
-**Windows** — one-line install via PowerShell:
+Choose one method for your platform. After installation, run `bwenv --version`
+and confirm a **v3.x** version. Use the same method for future upgrades to avoid
+multiple binaries taking precedence on PATH.
 
-```powershell
-irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex
-```
+<details>
+<summary>Homebrew on macOS</summary>
 
-> **Note:** Both scripts auto-detect your OS and architecture, download the latest release, verify checksums, and install to `~/.local/bin`. You can customize the version and install directory:
->
-> ```bash
-> # macOS/Linux: custom version and directory
-> BWENV_VERSION=v2.0.0 BWENV_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/main/install.sh | sh
->
-> # Windows: custom version and directory
-> irm https://raw.githubusercontent.com/s1ks1/bwenv/main/install.ps1 | iex -Version v2.0.0 -InstallDir C:\Tools
-> ```
-
-### macOS
-
-```bash
-# 1. Install direnv
-brew install direnv
-
-# 2. Install a password manager CLI (pick one or both)
-brew install bitwarden-cli    # Bitwarden
-brew install --cask 1password-cli  # 1Password
-
-# 3. Install bwenv
+```sh
 brew tap s1ks1/bwenv
 brew install --cask bwenv
 ```
 
-### Linux (Ubuntu/Debian)
+Upgrade with `brew upgrade --cask bwenv`.
 
-```bash
-# 1. Install direnv
-sudo apt update && sudo apt install -y direnv
+</details>
 
-# 2. Install Bitwarden CLI
-sudo snap install bw
-# OR download from: https://bitwarden.com/help/cli/#download-and-install
-
-# 2b. Install 1Password CLI (optional, instead of or in addition to Bitwarden)
-# Add 1Password APT repo:
-curl -sS https://downloads.1password.com/linux/keys/1password.asc | \
-  sudo gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" | \
-  sudo tee /etc/apt/sources.list.d/1password.list
-sudo apt update && sudo apt install -y 1password-cli
-
-# 3. Install bwenv (via Go)
-go install github.com/s1ks1/bwenv/v3@latest
-
-# OR download the binary directly:
-# Visit https://github.com/s1ks1/bwenv/releases
-# Download the linux-amd64 or linux-arm64 tarball
-# Extract and move to a directory in your PATH:
-tar xzf bwenv-*-linux-amd64.tar.gz
-sudo mv bwenv-*-linux-amd64/bwenv /usr/local/bin/
-```
-
-### Linux (Fedora/RHEL)
-
-```bash
-# 1. Install direnv
-sudo dnf install -y direnv
-
-# 2. Install Bitwarden CLI
-sudo snap install bw
-# OR use npm: npm install -g @bitwarden/cli
-
-# 2b. Install 1Password CLI (optional)
-sudo rpm --import https://downloads.1password.com/linux/keys/1password.asc
-sudo sh -c 'echo -e "[1password]\nname=1Password\nbaseurl=https://downloads.1password.com/linux/rpm/stable/\$basearch\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://downloads.1password.com/linux/keys/1password.asc" > /etc/yum.repos.d/1password.repo'
-sudo dnf install -y 1password-cli
-
-# 3. Install bwenv
-go install github.com/s1ks1/bwenv/v3@latest
-```
-
-### Linux (Arch)
-
-```bash
-# 1. Install direnv
-sudo pacman -S direnv
-
-# 2. Install Bitwarden CLI (from AUR)
-yay -S bitwarden-cli
-# OR: paru -S bitwarden-cli
-
-# 2b. Install 1Password CLI (optional, from AUR)
-yay -S 1password-cli
-
-# 3. Install bwenv
-go install github.com/s1ks1/bwenv/v3@latest
-```
-
-### Windows
+<details>
+<summary>Scoop on Windows</summary>
 
 ```powershell
-# Option A: Using Scoop (recommended)
-
-# 1. Install direnv
-scoop install direnv
-
-# 2. Install a password manager CLI
-scoop install bitwarden-cli    # Bitwarden
-# OR
-scoop install 1password-cli    # 1Password
-
-# 3. Install bwenv
 scoop bucket add bwenv https://github.com/s1ks1/scoop-bwenv
 scoop install bwenv
 ```
 
+Upgrade with `scoop update bwenv`. Use a supported shell for activation.
+
+</details>
+
+<details>
+<summary>Go module installation</summary>
+
+Install the initial v3 release:
+
+```sh
+go install github.com/s1ks1/bwenv/v3@v3.0.0
+```
+
+For the latest release in the v3 module, use
+`go install github.com/s1ks1/bwenv/v3@latest`. Go installation requires Go 1.25+.
+
+</details>
+
+<details>
+<summary>Install scripts</summary>
+
+Download and inspect the script before executing it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/s1ks1/bwenv/v3.0.0/install.sh -o /tmp/bwenv-install.sh
+less /tmp/bwenv-install.sh
+BWENV_VERSION=v3.0.0 sh /tmp/bwenv-install.sh
+```
+
+The POSIX installer accepts `BWENV_VERSION` (a published tag) and `BWENV_DIR`:
+
+```sh
+BWENV_VERSION=v3.0.0 BWENV_DIR="$HOME/.local/bin" sh /tmp/bwenv-install.sh
+```
+
+Keep the script URL and `BWENV_VERSION` on the same release tag when pinning a version.
+
+PowerShell:
+
 ```powershell
-# Option B: Using Chocolatey
+Invoke-WebRequest https://raw.githubusercontent.com/s1ks1/bwenv/v3.0.0/install.ps1 -OutFile bwenv-install.ps1
+Get-Content .\bwenv-install.ps1
+.\bwenv-install.ps1 -Version v3.0.0
+```
 
-# 1. Install direnv
-choco install direnv
+Use `-Version v3.0.0 -InstallDir <directory>` to select a release and destination.
+The installers require an exact, unique SHA256 checksum before installation.
+Do not bypass a verification failure.
 
-# 2. Install Bitwarden CLI
-choco install bitwarden-cli
-# OR 1Password CLI — download from https://developer.1password.com/docs/cli/
+</details>
 
-# 3. Install bwenv via Go
-go install github.com/s1ks1/bwenv/v3@latest
+<details>
+<summary>Manual archives and Linux DEB/RPM packages</summary>
+
+Open [Releases](https://github.com/s1ks1/bwenv/releases) and choose a **v3** release,
+OS and architecture. Download its `checksums.txt` and the matching archive/package.
+Check the filename and digest **before** extracting or installing:
+
+```sh
+sha256sum YOUR_DOWNLOADED_FILE     # Linux
+shasum -a 256 YOUR_DOWNLOADED_FILE # macOS
 ```
 
 ```powershell
-# Option C: Using winget
-
-# 1. Install direnv
-winget install direnv.direnv
-
-# 2. Install CLIs
-winget install Bitwarden.CLI
-# OR
-winget install AgileBits.1Password.CLI
-
-# 3. Install bwenv via Go
-go install github.com/s1ks1/bwenv/v3@latest
+Get-FileHash .\YOUR_DOWNLOADED_FILE -Algorithm SHA256
 ```
 
-### From Source (All Platforms)
+Compare the complete digest with the exact filename in `checksums.txt`.
+For Linux packages, install the verified file with `sudo dpkg -i ./FILE.deb`
+or `sudo rpm -i ./FILE.rpm`. Names shown here are placeholders.
+For archives, extract and place `bwenv` / `bwenv.exe` on PATH.
 
-```bash
-# Requires Go 1.25+ installed (release builds use Go 1.27.1)
-git clone https://github.com/s1ks1/bwenv.git
+</details>
+
+## Build v3 from source
+
+Build the tagged release to use the same source version as the packaged binary:
+
+```sh
+git clone --branch v3.0.0 --depth 1 https://github.com/s1ks1/bwenv.git
 cd bwenv
-make install    # Builds and installs to ~/.local/bin
-
-# Verify
-bwenv version
+go mod download
+make build
+make install
 ```
 
----
+`make install` builds and copies the binary to `~/.local/bin/bwenv`.
+Use a clean release-tag checkout for release version metadata. Builds from
+modified or untagged source are development builds, not the official release binary.
 
-## Post-Install Setup
+<details>
+<summary>Build without Make, including Windows</summary>
 
-### Configure direnv Hook
+Run from the clean release-tag checkout. Match the injected version to that tag:
 
-direnv needs to be hooked into your shell. **This is a one-time setup.**
-
-#### Bash
-
-Add to `~/.bashrc`:
-
-```bash
-eval "$(direnv hook bash)"
+```sh
+go build -ldflags "-X main.Version=v3.0.0" -o bwenv ./cmd/bwenv
 ```
 
-#### Zsh
-
-Add to `~/.zshrc`:
-
-```bash
-eval "$(direnv hook zsh)"
-```
-
-#### Fish
-
-Add to `~/.config/fish/config.fish`:
-
-```fish
-direnv hook fish | source
-```
-
-#### PowerShell
-
-Add to your PowerShell profile (`$PROFILE`):
+In PowerShell:
 
 ```powershell
-Invoke-Expression "$(direnv hook pwsh)"
+go build -ldflags "-X main.Version=v3.0.0" -o bwenv.exe ./cmd/bwenv
 ```
 
-After adding the hook, **restart your terminal** or source your shell config:
+Move the binary to a directory on your `PATH`. Do not commit build output.
+For automatic loading on Windows, continue in a supported shell.
 
-```bash
-source ~/.zshrc   # or ~/.bashrc, etc.
+</details>
+
+## Make the binary available on PATH
+
+If `command -v bwenv` finds nothing, add the installation directory to your shell
+RC file once. Keep any existing PATH configuration.
+
+| Shell | RC file normally used | Line to add |
+| --- | --- | --- |
+| Zsh | `~/.zshrc` | `export PATH="$HOME/.local/bin:$PATH"` |
+| Bash | `~/.bashrc` | `export PATH="$HOME/.local/bin:$PATH"` |
+| Fish | `~/.config/fish/config.fish` | `fish_add_path ~/.local/bin` |
+
+On macOS Bash, bwenv uses an existing `~/.bash_profile` when present. Login shells
+may need that file to source `~/.bashrc`. Follow the actual RC path printed by init.
+For `go install`, use the Go bin directory (`go env GOBIN`, or `$(go env GOPATH)/bin`
+when GOBIN is empty) instead of `~/.local/bin`.
+
+Open a new terminal after changing PATH:
+
+```sh
+command -v bwenv
+bwenv --version
 ```
 
-### Verify Installation
+## Finish setup
 
-```bash
-# Run focused diagnostics, then inspect the full status if needed
-bwenv doctor
-bwenv status
+1. Prepare your password manager account and a test folder/vault.
+2. Run `bwenv init` inside your project.
+3. Source the RC file printed by setup, or open a new terminal.
+4. If using direnv or mise, enable its [one-time shell hook](docs/activation.md).
+5. In the project, run `bwenv login`, then `bwenv doctor`.
+
+Continue with [Getting started](docs/getting-started.md). If installation or shell
+setup fails, use [Troubleshooting](docs/troubleshooting.md).
+
+## Download or retain v2
+
+The [v2.4.1 release](https://github.com/s1ks1/bwenv/releases/tag/v2.4.1) and its
+platform archives remain available. Homebrew, Scoop and the default install
+scripts follow the current V3 release. To stay on V2, download its archive and
+verify it against that release's `checksums.txt`, or pin the Go module:
+
+```sh
+go install github.com/s1ks1/bwenv/v2@v2.4.1
 ```
 
-`bwenv doctor` reports setup problems with suggested fixes and can be shared in an issue report. `bwenv status` shows:
-
-- Whether direnv is installed and its hook is configured
-- Which password manager CLIs are available
-- Current session states
-- Configuration preferences
-
-### Refresh provider data
-
-```bash
-bwenv refresh
-```
-
-This explicitly syncs Bitwarden before asking direnv to reload the environment. 1Password does not use a separate local sync command; the reload fetches current data through its CLI. `bwenv export` remains non-interactive and does not sync.
-
----
-
-## Testing with Bitwarden
-
-### Bitwarden Setup
-
-Before testing bwenv with Bitwarden, you need some test secrets in your vault.
-
-**Step 1: Log in to Bitwarden CLI**
-
-```bash
-# First-time login (you'll be prompted for email + master password)
-bw login
-
-# If already logged in, just unlock
-bw unlock
-```
-
-**Step 2: Create a test folder**
-
-You can do this via the Bitwarden web vault or the CLI:
-
-```bash
-# Create a folder (via web vault is recommended)
-# Go to vault.bitwarden.com → Folders → Create "bwenv-test"
-```
-
-**Step 3: Add test items with custom fields**
-
-In the Bitwarden web vault or app:
-
-1. Create a new **Secure Note** or **Login** item
-2. Place it in the `bwenv-test` folder
-3. Add **Custom Fields**:
-   - Field name: `DB_HOST` → Value: `localhost`
-   - Field name: `DB_PORT` → Value: `5432`
-   - Field name: `DB_PASSWORD` → Value: `test-secret-123`
-   - Field name: `API_KEY` → Value: `sk-test-key-abc`
-
-> **Important:** bwenv reads **custom fields**, not the standard username/password fields. Each custom field becomes one environment variable.
-
-**Step 4: Sync your vault**
-
-```bash
-# Initial sync before bwenv has a project configuration
-bw sync
-```
-
-After `bwenv init` has created the project `.envrc`, use `bwenv refresh` for an explicit sync and direnv reload.
-
-### Bitwarden Test: Interactive Mode
-
-```bash
-# Navigate to a test directory
-mkdir -p ~/bwenv-test && cd ~/bwenv-test
-
-# Run the full interactive flow
-bwenv init
-# → Select "Bitwarden" as the provider
-# → Enter your master password when prompted
-# → Select the "bwenv-test" folder
-# → bwenv will preview variables, generate .envrc, and auto-approve it
-
-# Trigger direnv to load the secrets
-cd .
-
-# Verify secrets are in the environment
-echo $DB_HOST        # Should print: localhost
-echo $DB_PORT        # Should print: 5432
-echo $API_KEY        # Should print: sk-test-key-abc
-env | grep DB_       # Should show DB_HOST, DB_PORT, DB_PASSWORD
-
-# Check status
-bwenv status
-
-# Clean up when done
-bwenv remove
-cd ~
-rm -rf ~/bwenv-test
-```
-
-### Bitwarden Test: Non-Interactive Mode
-
-```bash
-# Unlock Bitwarden and get session token
-export BW_SESSION=$(bw unlock --raw)
-
-# Export secrets directly (prints "export KEY=VALUE" lines)
-bwenv export --provider bitwarden --folder "bwenv-test"
-
-# Or load directly into your shell
-eval "$(bwenv export --provider bitwarden --folder "bwenv-test")"
-
-# Verify
-echo $DB_HOST
-echo $API_KEY
-
-# Lock vault when done
-bwenv logout
-```
-
-### Bitwarden: CI/CD Usage
-
-```bash
-# In CI, use BW_SESSION from environment
-export BW_SESSION="${{ secrets.BW_SESSION }}"
-
-# Load secrets for the deployment
-eval "$(bwenv export --provider bitwarden --folder "Production")"
-
-# Use secrets in your deployment
-./deploy.sh  # $DB_URL, $API_KEY, etc. are available
-```
-
----
-
-## Testing with 1Password
-
-### 1Password Setup
-
-**Step 1: Install and configure the `op` CLI**
-
-```bash
-# Verify op is installed
-op --version
-
-# Sign in to your 1Password account
-op signin
-# On macOS/Windows with 1Password desktop app, this uses biometric auth
-```
-
-**Step 2: Create a test vault** (or use an existing one)
-
-```bash
-# List existing vaults
-op vault list
-
-# Or create a test vault via the 1Password app/web
-# Create vault named "bwenv-test"
-```
-
-**Step 3: Add test items**
-
-Using the 1Password app or CLI:
-
-```bash
-# Create a test item with fields
-op item create \
-  --category login \
-  --title "Test Secrets" \
-  --vault "bwenv-test" \
-  --generate-password \
-  username=testuser \
-  'DB_HOST[text]=localhost' \
-  'DB_PORT[text]=5432' \
-  'API_KEY[text]=sk-test-key-abc'
-```
-
-Or manually in the 1Password app:
-
-1. Go to the `bwenv-test` vault
-2. Create a new item
-3. Add fields with labels like `DB_HOST`, `DB_PORT`, `API_KEY`
-
-> **Important:** bwenv reads item **fields**. The field label becomes the env var name, the field value becomes the env var value. Notes and OTP fields are skipped.
-
-### 1Password Test: Interactive Mode
-
-```bash
-# Navigate to a test directory
-mkdir -p ~/bwenv-test && cd ~/bwenv-test
-
-# Run the full interactive flow
-bwenv init
-# → Select "1Password" as the provider
-# → Authenticate via biometrics/system prompt (op CLI v2)
-# → Select the "bwenv-test" vault
-# → bwenv will preview variables, generate .envrc, and auto-approve it
-
-# Trigger direnv to load the secrets
-cd .
-
-# Verify secrets are in the environment
-echo $DB_HOST        # Should print: localhost
-echo $DB_PORT        # Should print: 5432
-echo $API_KEY        # Should print: sk-test-key-abc
-env | grep DB_       # Should show DB_HOST, DB_PORT
-
-# Check status
-bwenv status
-
-# Clean up when done
-bwenv remove
-cd ~
-rm -rf ~/bwenv-test
-```
-
-### 1Password Test: Non-Interactive Mode
-
-```bash
-# Ensure you're signed in (op v2 uses system auth)
-op signin
-
-# Export secrets directly
-bwenv export --provider 1password --folder "bwenv-test"
-
-# Or load directly into your shell
-eval "$(bwenv export --provider 1password --folder "bwenv-test")"
-
-# Verify
-echo $DB_HOST
-echo $API_KEY
-
-# Lock vault when done
-bwenv logout
-```
-
-### 1Password: CI/CD Usage
-
-```bash
-# In CI, use a service account token
-export OP_SERVICE_ACCOUNT_TOKEN="${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}"
-
-# Load secrets for the deployment
-eval "$(bwenv export --provider 1password --folder "Production")"
-
-# Use secrets in your deployment
-./deploy.sh  # $DB_URL, $API_KEY, etc. are available
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-#### "direnv: error .envrc is blocked"
-
-```bash
-bwenv allow    # Approve the .envrc file
-```
-
-#### "direnv: loading .envrc" messages appearing
-
-These messages come from direnv's shell hook, not from bwenv itself.
-bwenv automatically silences them by adding `DIRENV_LOG_FORMAT=""` to your shell RC file.
-
-```bash
-# If messages still appear, restart your shell:
-exec $SHELL
-
-# Or manually re-source your config:
-source ~/.zshrc   # or ~/.bashrc, etc.
-
-# You can also toggle the setting via:
-bwenv config   # Toggle "Show Direnv Output" to OFF
-```
-
-#### Bitwarden: "Your vault is locked"
-
-```bash
-bwenv login               # Re-authenticate and update .envrc in one step
-```
-
-If `bwenv login` doesn't work (e.g. no `.envrc` exists yet):
-
-```bash
-bwenv logout              # Clear stale sessions
-bw unlock                 # Unlock vault again
-bwenv init                # Re-run setup to get a fresh session
-```
-
-#### Bitwarden: "Session key is invalid"
-
-The BW_SESSION token has expired. Re-authenticate:
-
-```bash
-bwenv login               # Fastest way — re-auths and updates .envrc
-```
-
-#### 1Password: "not signed in"
-
-```bash
-bwenv login               # Re-authenticate and update .envrc
-# Or manually:
-op signin                 # Re-authenticate
-bwenv init                # Re-run setup
-```
-
-#### No secrets found / 0 variables loaded
-
-For **Bitwarden**: Ensure your items have **custom fields** (not just the standard username/password). Each custom field becomes one environment variable.
-
-For **1Password**: Ensure your items have fields with **labels and values**. Fields without labels or with empty values are skipped. Notes and OTP fields are also skipped.
-
-#### direnv not loading on terminal start
-
-Make sure the direnv hook is in your shell RC file:
-
-```bash
-bwenv status   # Check the "Dependencies" section
-```
-
-#### bwenv not found
-
-Make sure the install directory is in your `PATH`:
-
-```bash
-# If installed via go install:
-export PATH="$HOME/go/bin:$PATH"
-
-# If installed via make install:
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-### Full Diagnostic Check
-
-Run the comprehensive status command to see everything at a glance:
-
-```bash
-bwenv status
-```
-
-This checks:
-- `.envrc` presence and content
-- direnv installation and hook
-- Provider CLI availability
-- Active sessions
-- Relevant environment variables
-- Config preferences
-
----
+The `v2` branch retains the released V2 source for possible patches. Future V2
+patches will keep their own tags and downloads without replacing V3 as latest.
+Before switching a configured V3 project back to V2, preserve its metadata and
+use a compatible direnv setup: V2 does not support native or mise activation.
 
 ## Uninstall
 
-### macOS (Homebrew)
+First run `bwenv remove` in each project you no longer want managed, while the
+shell wrapper is still installed. Lock/sign out as appropriate with `bwenv lock`.
+Then uninstall through the tool that installed the binary (`brew uninstall --cask bwenv`,
+`scoop uninstall bwenv`, or `make uninstall` for the default source installation).
+For a manual installation, remove that specific binary.
 
-```bash
-brew uninstall --cask bwenv
-brew untap s1ks1/bwenv
-```
-
-### Windows (Scoop)
-
-```powershell
-scoop uninstall bwenv
-scoop bucket rm bwenv
-```
-
-### Go install
-
-```bash
-rm -f $(go env GOPATH)/bin/bwenv
-```
-
-### From source
-
-```bash
-cd bwenv
-make uninstall
-```
-
-### Clean up bwenv config
-
-```bash
-rm -rf ~/.config/bwenv
-```
-
-### Remove direnv silence line (optional)
-
-If bwenv added `export DIRENV_LOG_FORMAT=""` to your shell RC, you can remove it:
-
-```bash
-# Check if it's there
-grep DIRENV_LOG_FORMAT ~/.zshrc   # or ~/.bashrc
-
-# Remove the line if you want direnv messages back
-# Edit your shell RC file and remove the DIRENV_LOG_FORMAT line
-```
-
-### Remove .envrc from projects
-
-In each project directory where bwenv was used:
-
-```bash
-bwenv remove    # or just: rm .envrc
-```
+Review your RC file and remove bwenv's generated hook, wrapper and login-notice
+blocks if no projects use them. `bwenv remove` leaves shared shell integration
+installed. Keep direnv/mise hooks if other projects need them. User preferences
+remain in `~/.config/bwenv` (or `$XDG_CONFIG_HOME/bwenv`); remove them only if you
+want to discard those preferences too.

@@ -1,11 +1,16 @@
 # bwenv Roadmap
 
 > **Project:** `s1ks1/bwenv`
-> **Current public baseline:** `v2.4.1`
+> **Current release:** `v3.0.0` (2026-10-08)
+> **V2 maintenance baseline:** `v2.4.1`; downloads remain available and possible patches use the `v2` branch.
 > **Roadmap scope:** performance, architecture, security, activation model, DX, testing, CI/CD and future extensibility
 > **Primary goal:** make bwenv feel instant in normal shell usage while keeping secret handling safe and the project maintainable as it grows.
 
-## Current v3 direction (2026-10-04)
+## Current v3 direction (2026-10-08)
+
+V3 is the official development and release line. The detailed V2 phases below
+are retained as historical planning, not an active backlog. Current behavior
+and setup are documented in [README.md](README.md) and [the user guides](docs/getting-started.md).
 
 New projects default to native `shell` activation, with a saved preference for
 `direnv` or `mise`. Existing projects retain their backend; native and mise remain
