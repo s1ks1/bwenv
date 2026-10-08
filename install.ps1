@@ -136,7 +136,8 @@ function Install-Bwenv {
     }
 
     # Construct download URL.
-    $archiveName = "bwenv-$Version-windows-$arch.zip"
+    $versionNum = $Version -replace '^v', ''
+    $archiveName = "bwenv-$versionNum-windows-$arch.zip"
     $downloadUrl = "https://github.com/$GitHubRepo/releases/download/$Version/$archiveName"
 
     # Create temp directory.

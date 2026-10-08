@@ -159,7 +159,7 @@ main() {
     VERSION_NUM="${VERSION#v}"
 
     # Construct download URL.
-    ARCHIVE_NAME="bwenv-${VERSION}-${PLATFORM}.tar.gz"
+    ARCHIVE_NAME="bwenv-${VERSION_NUM}-${PLATFORM}.tar.gz"
     DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
 
     # Create temp directory.
