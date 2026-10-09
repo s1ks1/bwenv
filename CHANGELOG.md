@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v3.0.2 - 2026-10-09
 
 - Clear 1Password service-account credentials on logout without attempting `op signout`, which requires a user session.
 
