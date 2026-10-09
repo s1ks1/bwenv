@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## v3.0.1 - 2026-10-09
 
 - Pass the selected vault ID when fetching 1Password items, fixing preview and export for service accounts with access to multiple vaults.
+- Fix POSIX and PowerShell installer archive names so version tags resolve to the published downloads.
 
 ## v3.0.0 - 2026-10-08
 
