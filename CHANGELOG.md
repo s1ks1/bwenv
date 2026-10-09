@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Pass the selected vault ID when fetching 1Password items, fixing preview and export for service accounts with access to multiple vaults.
+
 ## v3.0.0 - 2026-10-08
 
 - Publish the complete v3 user documentation, command reference, migration guide and accessible workflow demo.
