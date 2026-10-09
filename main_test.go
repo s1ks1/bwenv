@@ -218,13 +218,13 @@ exit 0`
 					t.Skip(name + " unavailable")
 				}
 				t.Chdir(t.TempDir())
+				home := t.TempDir()
+				t.Setenv("HOME", home)
+				t.Setenv("SHELL", path)
 				backend, _ := activation.Get("shell")
 				if err := backend.Install(activation.Config{ProviderSlug: "1password", FolderName: "Fixture", FolderID: "vault-1", ItemIDs: []string{"item-1"}}); err != nil {
 					t.Fatal(err)
 				}
-				home := t.TempDir()
-				t.Setenv("HOME", home)
-				t.Setenv("SHELL", path)
 				if _, _, err := runshell.InstallWrapper(); err != nil {
 					t.Fatal(err)
 				}
