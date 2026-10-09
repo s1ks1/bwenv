@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.0.2 - 2026-10-09
+
+- Clear 1Password service-account credentials on logout without attempting `op signout`, which requires a user session.
+
 ## v3.0.1 - 2026-10-09
 
 - Pass the selected vault ID when fetching 1Password items, fixing preview and export for service accounts with access to multiple vaults.

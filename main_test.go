@@ -210,6 +210,45 @@ exit 0`
 			})
 		}
 	})
+	t.Run("service account allow and logout", func(t *testing.T) {
+		for _, name := range []string{"bash", "zsh"} {
+			t.Run(name, func(t *testing.T) {
+				path, err := exec.LookPath(name)
+				if err != nil {
+					t.Skip(name + " unavailable")
+				}
+				t.Chdir(t.TempDir())
+				home := t.TempDir()
+				t.Setenv("HOME", home)
+				t.Setenv("SHELL", path)
+				backend, _ := activation.Get("shell")
+				if err := backend.Install(activation.Config{ProviderSlug: "1password", FolderName: "Fixture", FolderID: "vault-1", ItemIDs: []string{"item-1"}}); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := runshell.InstallWrapper(); err != nil {
+					t.Fatal(err)
+				}
+				rc := ".bashrc"
+				if name == "zsh" {
+					rc = ".zshrc"
+				}
+				cmd := exec.Command(path, "-c", `set -e
+export PATH="$_BWENV_TEST_PATH"
+source "$1/$2"
+export API_KEY=original OP_SERVICE_ACCOUNT_TOKEN=fixture-token
+bwenv allow
+[ "$API_KEY" = fake-secret-value ]
+bwenv logout
+[ "$API_KEY" = original ]
+[ "${OP_SERVICE_ACCOUNT_TOKEN+x}" != x ]
+[ "$_BWENV_LOCKED" = 1 ]`, name, home, rc)
+				cmd.Env = append(os.Environ(), "_BWENV_TEST_PATH="+bin+":"+os.Getenv("PATH"), "XDG_CONFIG_HOME="+t.TempDir(), "BWENV_FAKE_SCENARIO=service-account")
+				if output, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("service account lifecycle: %v\n%s", err, output)
+				}
+			})
+		}
+	})
 	t.Run("persistent disable and shell lock", func(t *testing.T) {
 		for _, name := range []string{"bash", "zsh"} {
 			for _, slug := range []string{"bitwarden", "1password"} {

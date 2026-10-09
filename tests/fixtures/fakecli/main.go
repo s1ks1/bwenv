@@ -25,6 +25,16 @@ func main() {
 		}
 	}
 	args := strings.Join(os.Args[1:], " ")
+	if os.Getenv("BWENV_FAKE_SCENARIO") == "service-account" {
+		if strings.HasPrefix(args, "item get") && !strings.Contains(args, "--vault vault-1") {
+			fmt.Fprintln(os.Stderr, "service account requires a vault")
+			os.Exit(1)
+		}
+		if strings.HasPrefix(args, "signout") && os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != "" {
+			fmt.Fprintln(os.Stderr, "service accounts have no CLI session to sign out")
+			os.Exit(1)
+		}
+	}
 	if args == "--version" {
 		fmt.Print("2026.9.0-fixture")
 		return

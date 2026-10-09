@@ -261,14 +261,14 @@ func runLogout(request Request) int {
 			ui.PrintError("Lock failed", err)
 			return 1
 		}
-		ui.PrintInfo(`Vaults locked · use the shell wrapper or eval "$(bwenv lock)" to clear this shell`)
+		ui.PrintInfo(`Logout requested · use the shell wrapper or eval "$(bwenv lock)" to clear this shell`)
 		return 0
 	}
 	if _, err := export.LockAndUnset(context.Background(), request.Shell); err != nil {
 		ui.PrintError("Lock incomplete", err)
 		return 1
 	}
-	ui.PrintSuccess("Vaults locked · shell environment cleared")
+	ui.PrintSuccess("Shell environment cleared · automatic loading locked")
 	return 0
 }
 
