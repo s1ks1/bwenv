@@ -161,7 +161,9 @@ forcing a conversion. See [migration](migration.md) for backup handling.
 
 Lock clears the invoking shell; other terminals and running children retain their
 own environment copies. Removing a local service-account token does not revoke
-it remotely. A provider lock error still produces shell cleanup through the wrapper,
+it remotely. With `OP_SERVICE_ACCOUNT_TOKEN`, logout removes that token through
+the shell wrapper instead of running `op signout`; supplying the token again is
+required to reuse the service account. If your shell startup config supplies it,+a new terminal will receive it again. A provider lock error still produces shell cleanup through the wrapper,
 but returns a failure so you can investigate the provider operation.
 
 `disallow` persists disablement for native/mise projects. `remove` deletes the

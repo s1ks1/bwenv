@@ -343,6 +343,10 @@ func fieldsToSecrets(fields []opItemField) []provider.Secret {
 // For op CLI v2+, this runs "op signout" to terminate the current session.
 // Returns nil if the sign-out succeeds or if there is no active session.
 func (o *OnePassword) Lock(ctx context.Context) error {
+	// Service accounts use a bearer token; the shell cleanup removes it.
+	if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != "" {
+		return nil
+	}
 	// If not authenticated, there's nothing to sign out of.
 	if !o.IsAuthenticated(ctx) {
 		return nil
