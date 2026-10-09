@@ -237,11 +237,11 @@ func (o *OnePassword) ListItems(ctx context.Context, session string, folder prov
 }
 
 // GetSecretsByItemIDs retrieves fields only from the specified items.
-// Item IDs are globally unique in 1Password, so no vault specification is
-// needed. Unlike the best-effort folder fetch, a selected item that cannot be
+// Service accounts with multiple vaults require an explicit vault even for
+// globally unique item IDs. Unlike the best-effort folder fetch, an item that cannot be
 // read is reported as an error so the caller never silently loads fewer secrets.
 func (o *OnePassword) GetSecretsByItemIDs(ctx context.Context, session string, folder provider.Folder, itemIDs []string) ([]provider.Secret, error) {
-	secrets, problems := o.fetchItemsSecrets(ctx, itemIDs, "")
+	secrets, problems := o.fetchItemsSecrets(ctx, itemIDs, folder.ID)
 	o.reportProblems(problems)
 	if len(problems) > 0 {
 		return secrets, fmt.Errorf("%d of %d selected item(s) could not be fetched", len(problems), len(itemIDs))

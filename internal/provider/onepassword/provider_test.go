@@ -270,8 +270,9 @@ func TestOnePasswordItemsToSecretItems(t *testing.T) {
 // opStubRunner answers "op item get <id>" from canned per-item output so the
 // selected-item path can be exercised without a real 1Password account.
 type opStubRunner struct {
-	stdout map[string]string
-	errs   map[string]error
+	stdout        map[string]string
+	errs          map[string]error
+	requiredVault string
 }
 
 func (r *opStubRunner) Run(_ context.Context, _ string, args []string, _ process.IO) (process.Result, error) {
@@ -279,10 +280,37 @@ func (r *opStubRunner) Run(_ context.Context, _ string, args []string, _ process
 	if len(args) >= 3 && args[0] == "item" && args[1] == "get" {
 		id = args[2]
 	}
+	if r.requiredVault != "" {
+		found := false
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--vault" && args[i+1] == r.requiredVault {
+				found = true
+			}
+		}
+		if !found {
+			return process.Result{}, errors.New("service account requires an explicit vault")
+		}
+	}
 	if err := r.errs[id]; err != nil {
 		return process.Result{}, err
 	}
 	return process.Result{Stdout: []byte(r.stdout[id])}, nil
+}
+
+func TestOnePasswordSelectedItemsWithServiceAccountVault(t *testing.T) {
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "fixture-service-account")
+	runner := &opStubRunner{
+		requiredVault: "vault-1",
+		stdout: map[string]string{
+			"item-1": `{"fields":[{"label":"API_KEY","value":"fixture-value","type":"CONCEALED"}]}`,
+		},
+	}
+	var warnings bytes.Buffer
+	o := &OnePassword{Runner: runner, Warnings: &warnings}
+	secrets, err := o.GetSecretsByItemIDs(context.Background(), "", provider.Folder{ID: "vault-1"}, []string{"item-1"})
+	if err != nil || len(secrets) != 1 || secrets[0].Key != "API_KEY" || secrets[0].Value != "fixture-value" || warnings.Len() != 0 {
+		t.Fatalf("selected-item fetch failed: secrets=%v err=%v warnings=%q", secrets, err, warnings.String())
+	}
 }
 
 func TestOnePasswordSelectedItemFailureIsReportedAsError(t *testing.T) {
